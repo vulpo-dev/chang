@@ -8,6 +8,14 @@ repository = "https://github.com/vulpo-dev/chang"
 keywords = ["postgres", "postgreSQL", "SQLx"]
 description = "Postgres utilities"
 
+[lib]
+name = "chang"
+path = "src/lib.rs"
+
+[[bin]]
+name = "chang"
+path = "src/cli/main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -23,6 +31,8 @@ log = { version = "0.4.20", features = ["kv_unstable", "serde", "kv_unstable_ser
 futures-util = "0.3.29"
 futures = "0.3.29"
 uuid = { version = "1.5.0", features = ["serde", "v4"]}
+clap = { version = "4.4.8", features = ["derive"] }
+dotenv = "0.15.0"
 
 [dependencies.sqlx]
 version = "0.7"
@@ -39,7 +49,6 @@ features = [
 
 
 [dev-dependencies]
-dotenv = "0.15.0"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 tracing-opentelemetry = "0.22.0"
