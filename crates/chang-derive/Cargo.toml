@@ -1,0 +1,21 @@
+[package]
+name = "chang_derive"
+authors = ["Michael Riezler <michael@riezler.co>"]
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/vulpo-dev/chang"
+keywords = ["postgres", "postgreSQL", "SQLx"]
+description = "Postgres utilities"
+
+[lib]
+proc-macro = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chang_core = { path = "../chang-core" }
+
+syn = "2.0.39"
+quote = "1.0"
+convert_case = "0.6.0"

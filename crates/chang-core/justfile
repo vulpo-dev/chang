@@ -1,6 +1,7 @@
 set shell := ["pwsh", "-c"]
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
+
 database-create:
 	sqlx database create
 
@@ -14,13 +15,18 @@ database-reset: database-drop database-setup
 sqlx-prepare:
 	cargo sqlx prepare
 
+
 migrate-otel:
 	sqlx migrate run --source ./migrations/otel --ignore-missing
+
+migrate-events:
+	sqlx migrate run --source ./migrations/events --ignore-missing
 
 migrate-base: 
 	sqlx migrate run --source ./migrations/base --ignore-missing
 
-migrate: migrate-base migrate-otel
+migrate: migrate-base migrate-otel migrate-events
+
 
 example-logs:
 	cargo run --example logs
@@ -33,6 +39,10 @@ example-metrics:
 
 example-tracing-otel:
 	cargo run --example tracing-otel
+
+example-events:
+	cargo run --example events
+
 
 up:
 	docker compose up -d

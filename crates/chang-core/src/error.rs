@@ -9,6 +9,9 @@ pub enum Error {
 
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
+
+    #[error("")]
+    Other(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

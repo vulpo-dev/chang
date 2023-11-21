@@ -23,3 +23,15 @@ pub async fn base(pool: &PgPool) {
         }
     };
 }
+
+pub async fn events(pool: &PgPool) {
+    let mut migrator = sqlx::migrate!("./migrations/events");
+    migrator.set_ignore_missing(true);
+    match migrator.run(pool).await {
+        Ok(_) => println!("Otel Migrations done"),
+        Err(err) => {
+            println!("Failed to run migrations");
+            panic!("{:?}", err);
+        }
+    };
+}

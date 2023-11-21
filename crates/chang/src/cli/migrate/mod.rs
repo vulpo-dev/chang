@@ -15,6 +15,7 @@ pub struct MigrateArgs {
 enum MigrateCommands {
     Base,
     Otel,
+    Events,
 }
 
 pub async fn run(args: MigrateArgs) {
@@ -29,7 +30,8 @@ pub async fn run(args: MigrateArgs) {
         .expect("Valid DB connection");
 
     match args.command {
-        MigrateCommands::Base => chang::db::migration::base(&pool).await,
-        MigrateCommands::Otel => chang::db::migration::otel(&pool).await,
+        MigrateCommands::Base => chang_core::db::migration::base(&pool).await,
+        MigrateCommands::Otel => chang_core::db::migration::otel(&pool).await,
+        MigrateCommands::Events => chang_core::db::migration::events(&pool).await,
     }
 }
