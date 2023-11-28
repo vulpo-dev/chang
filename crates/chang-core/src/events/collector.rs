@@ -5,16 +5,14 @@ use std::time::Duration;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time;
 
+use crate::events::channels;
 use crate::events::exporter::EventExporter;
-use crate::events::{channels, transform};
+use crate::events::transform::EventRecord;
 
-type Channels = (
-    UnboundedSender<transform::Event>,
-    UnboundedReceiver<transform::Event>,
-);
+type Channels = (UnboundedSender<EventRecord>, UnboundedReceiver<EventRecord>);
 
 pub struct ChangEventCollector {
-    events: Arc<Mutex<Vec<transform::Event>>>,
+    events: Arc<Mutex<Vec<EventRecord>>>,
     exporter: Arc<Box<dyn EventExporter>>,
     interval: Duration,
 }

@@ -4,20 +4,20 @@ use uuid::Uuid;
 
 #[derive(Serialize, Debug)]
 pub struct EventData {
-    pub events: Vec<Event>,
+    pub events: Vec<EventRecord>,
 }
 
 #[derive(Serialize, Clone, Debug)]
-pub struct Event {
+pub struct EventRecord {
     pub id: Uuid,
     pub kind: String,
     pub body: serde_json::Value,
     pub created_at: DateTime<Utc>,
 }
 
-impl Event {
+impl EventRecord {
     pub fn new(kind: &str, body: serde_json::Value) -> Self {
-        Event {
+        EventRecord {
             id: Uuid::new_v4(),
             kind: kind.to_string(),
             body,
@@ -26,8 +26,8 @@ impl Event {
     }
 }
 
-impl From<Vec<Event>> for EventData {
-    fn from(events: Vec<Event>) -> Self {
+impl From<Vec<EventRecord>> for EventData {
+    fn from(events: Vec<EventRecord>) -> Self {
         EventData { events }
     }
 }

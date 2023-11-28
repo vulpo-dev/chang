@@ -3,13 +3,13 @@ use sqlx::PgPool;
 
 use crate::db::events::EventsService;
 use crate::error::{Error, Result};
-use crate::events::transform::Event;
+use crate::events::transform::EventRecord;
 
 use super::transform::EventData;
 
 #[async_trait]
 pub trait EventExporter: Send + Sync {
-    async fn export(&self, batch: Vec<Event>) -> Result<()>;
+    async fn export(&self, batch: Vec<EventRecord>) -> Result<()>;
 }
 
 pub struct ChangEventExporter {
@@ -25,7 +25,7 @@ impl ChangEventExporter {
 
 #[async_trait]
 impl EventExporter for ChangEventExporter {
-    async fn export(&self, batch: Vec<Event>) -> Result<()> {
+    async fn export(&self, batch: Vec<EventRecord>) -> Result<()> {
         if self.db.is_closed() == false {
             let data = EventData::from(batch);
             EventsService::batch_insert(&self.db, data).await?;

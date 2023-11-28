@@ -1,9 +1,9 @@
 use std::sync::OnceLock;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::events::transform::Event;
+use crate::events::transform::EventRecord;
 
-type Sender = UnboundedSender<Event>;
+type Sender = UnboundedSender<EventRecord>;
 
 static CHANNELS: OnceLock<Sender> = OnceLock::new();
 

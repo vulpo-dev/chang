@@ -41,5 +41,5 @@ features = [
 
 [dev-dependencies]
 tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
-tracing-opentelemetry = "0.22.0"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "json", "std","smallvec", "fmt", "ansi"] }
+tracing-opentelemetry = { version = "0.22", default-features = false, features = ["metrics"] }
