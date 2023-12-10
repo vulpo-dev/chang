@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/*\r\n * $1 json - Array of logs \r\n */\r\n \r\ninsert into chang.events\r\nselect *\r\n  from jsonb_to_recordset($1) as event_records\r\n       ( id uuid\r\n       , kind text\r\n       , body jsonb\r\n       , created_at timestamptz\r\n       )\r\non conflict (id) do update set id = uuid_generate_v4()\r\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "601518a24b41a1783df92a9fa3c33be3e02adeda64b83ae645542c74b7396c63"
+}
