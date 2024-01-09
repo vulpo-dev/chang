@@ -339,7 +339,7 @@ where
     where
         K: Into<String>,
         H: Fn(Context) -> TFut + Send + Sync + 'static,
-        TFut: Future<Output = Result<(), E>> + Send + Sync + 'static,
+        TFut: Future<Output = Result<(), E>> + Send + 'static,
     {
         let wrapper = move |req| Box::pin(h(req));
         self.routes.insert(k.into(), Box::new(wrapper));
@@ -364,16 +364,16 @@ where
 }
 
 trait TaskRunner<Ctx, E> {
-    fn call(&self, ctx: Ctx) -> Pin<Box<dyn Future<Output = Result<(), E>> + Send + Sync>>;
+    fn call(&self, ctx: Ctx) -> Pin<Box<dyn Future<Output = Result<(), E>> + Send>>;
 }
 
-impl<F: Send + Sync + 'static, Ret, Ctx, E> TaskRunner<Ctx, E> for F
+impl<F: Sync + 'static, Ret, Ctx, E> TaskRunner<Ctx, E> for F
 where
-    F: Fn(Ctx) -> Ret + Send + Sync + 'static,
-    Ret: Future<Output = Result<(), E>> + Send + Sync + 'static,
+    F: Fn(Ctx) -> Ret + Sync + 'static,
+    Ret: Future<Output = Result<(), E>> + Send + 'static,
     E: Into<Box<dyn Error + Send + Sync>>,
 {
-    fn call(&self, req: Ctx) -> Pin<Box<dyn Future<Output = Result<(), E>> + Send + Sync>> {
+    fn call(&self, req: Ctx) -> Pin<Box<dyn Future<Output = Result<(), E>> + Send>> {
         Box::pin(self(req))
     }
 }
