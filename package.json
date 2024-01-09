@@ -1,0 +1,19 @@
+{
+  "name": "chang",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "seed:random-tasks": "tsx ./scripts/seed-random-tasks.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@faker-js/faker": "^8.3.1",
+    "dotenv": "^16.3.1",
+    "pg": "^8.11.3",
+    "postgres": "^3.4.3",
+    "tsx": "^4.7.0"
+  }
+}

@@ -22,26 +22,13 @@ migrate-otel:
 migrate-events:
 	sqlx migrate run --source ./migrations/events --ignore-missing
 
+migrate-tasks:
+	sqlx migrate run --source ./migrations/tasks --ignore-missing
+
 migrate-base: 
 	sqlx migrate run --source ./migrations/base --ignore-missing
 
-migrate: migrate-base migrate-otel migrate-events
-
-
-example-logs:
-	cargo run --example logs
-
-example-trace:
-	cargo run --example trace
-
-example-metrics:
-	cargo run --example metrics
-
-example-tracing-otel:
-	cargo run --example tracing-otel
-
-example-events:
-	cargo run --example events
+migrate: migrate-base migrate-otel migrate-events migrate-tasks
 
 
 up:

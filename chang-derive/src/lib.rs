@@ -34,3 +34,38 @@ fn impl_event_macro(ast: &syn::DeriveInput) -> TokenStream {
 
     TokenStream::from(impl_event)
 }
+
+#[proc_macro_derive(Task)]
+pub fn task_macro_derive(input: TokenStream) -> TokenStream {
+    // Construct a representation of Rust code as a syntax tree
+    // that we can manipulate
+    let ast = parse_macro_input!(input as DeriveInput);
+
+    // Build the trait implementation
+    impl_task_macro(&ast)
+}
+
+fn impl_task_macro(ast: &syn::DeriveInput) -> TokenStream {
+    let name = &ast.ident;
+    let kind = name.to_string().to_case(Case::Snake);
+
+    let impl_event = quote! {
+        impl chang::task::TaskKind for #name {
+            fn kind() -> String {
+                #kind.to_string()
+            }
+        }
+
+        impl chang::task::FromTaskContext for #name {
+            type Error = chang::task::TaskContextError;
+
+            fn from_context(ctx: &Context) -> Result<Self, Self::Error> {
+                let current_task = chang::task::CurrentTask::from_context(ctx)?;
+                let task = serde_json::from_value(current_task.0.clone())?;
+                Ok(task)
+            }
+        }
+    };
+
+    TokenStream::from(impl_event)
+}

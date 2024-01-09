@@ -1,0 +1,19 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+example-logs:
+	cargo run --example logs
+
+example-trace:
+	cargo run --example trace
+
+example-metrics:
+	cargo run --example metrics
+
+example-tracing-otel:
+	cargo run --example tracing-otel
+
+example-events:
+	cargo run --example events
+
+example-tasks:
+	cargo run --example tasks

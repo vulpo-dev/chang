@@ -24,6 +24,7 @@ futures-util = "0.3.29"
 futures = "0.3.29"
 uuid = { version = "1.5.0", features = ["serde", "v4"]}
 dotenv = "0.15.0"
+anyhow = "1.0.79"
 
 [dependencies.sqlx]
 version = "0.7"
