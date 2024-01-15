@@ -1,185 +1,45 @@
 mod context;
+mod queue;
 
 pub use context::{AnyClone, Context, CurrentTask};
-use futures::future;
+use futures_util::future::SelectAll;
+pub use queue::{SchedulingStrategy, TaskQueue};
 
-use crate::db::tasks::{NewTask, Task as DbTask, TaskService};
-use chrono::{DateTime, Utc};
+pub use crate::db::tasks::{
+    try_from, NewTask, Task, TaskBuildError, TaskBuilder, TaskKind, TaskService, TaskState,
+};
+use futures::future;
 use futures_util::Future;
-use serde::Serialize;
-use sqlx::{PgExecutor, PgPool};
+use log::{error, info};
+use sqlx::PgPool;
 use std::error::Error;
 use std::ops::Deref;
 use std::{collections::HashMap, sync::Arc};
 use std::{fmt::Debug, pin::Pin};
 use tokio::sync::RwLock;
-use uuid::Uuid;
+use tokio_util::sync::CancellationToken;
 
-pub struct Task {
-    pub scheduled_at: Option<DateTime<Utc>>,
-    pub max_attempts: i16,
-    pub attempted_by: Vec<String>,
-    pub tags: Vec<String>,
-    pub kind: String,
-    pub args: serde_json::Value,
-    pub priority: i16,
-    pub queue: Option<String>,
-    pub depends_on: Option<Uuid>,
-    pub dependend_id: Option<Uuid>,
-}
-
-impl Task {
-    pub fn builder() -> TaskBuilder {
-        TaskBuilder::default()
-    }
-
-    pub async fn insert(self, db: impl PgExecutor<'_>) -> sqlx::Result<Uuid> {
-        let new_task = NewTask {
-            scheduled_at: self.scheduled_at,
-            max_attempts: self.max_attempts,
-            attempted_by: self.attempted_by,
-            tags: self.tags,
-            kind: self.kind,
-            args: self.args,
-            priority: self.priority,
-            queue: self.queue,
-            depends_on: self.depends_on,
-            dependend_id: self.dependend_id,
-        };
-
-        Box::pin(TaskService::insert(db, new_task)).await
-    }
-}
-
-pub async fn enqueu_task(db: impl PgExecutor<'_>, task: Task) -> sqlx::Result<Uuid> {
-    let new_task = NewTask {
-        scheduled_at: task.scheduled_at,
-        max_attempts: task.max_attempts,
-        attempted_by: task.attempted_by,
-        tags: task.tags,
-        kind: task.kind,
-        args: task.args,
-        priority: task.priority,
-        queue: task.queue,
-        depends_on: task.depends_on,
-        dependend_id: task.dependend_id,
-    };
-
-    TaskService::insert(db, new_task).await
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum TaskBuildError {
-    #[error("kind missing")]
-    KindMissing,
-
-    #[error("args missing")]
-    ArgsMissing,
-}
-
-struct TaskBuilderInner {
-    scheduled_at: Option<DateTime<Utc>>,
-    max_attempts: Option<i16>,
-    attempted_by: Vec<String>,
-    tags: Vec<String>,
-    kind: Option<String>,
-    args: Option<serde_json::Value>,
-    priority: Option<i16>,
-    queue: Option<String>,
-    depends_on: Option<Uuid>,
-    dependend_id: Option<Uuid>,
-}
-
-pub struct TaskBuilder {
-    inner: TaskBuilderInner,
-}
-
-impl Default for TaskBuilder {
-    fn default() -> Self {
-        let inner = TaskBuilderInner {
-            scheduled_at: None,
-            max_attempts: Some(3),
-            attempted_by: vec![],
-            tags: vec![],
-            kind: None,
-            args: None,
-            priority: Some(1),
-            queue: None,
-            depends_on: None,
-            dependend_id: None,
-        };
-
-        TaskBuilder { inner }
-    }
-}
-
-impl TaskBuilder {
-    pub fn task<T: TaskKind + Serialize>(mut self, task: T) -> Result<Self, serde_json::Error> {
-        let kind = T::kind();
-        let args = serde_json::to_value(task)?;
-
-        self.inner.kind = Some(kind);
-        self.inner.args = Some(args);
-
-        Ok(self)
-    }
-
-    pub fn depends_on(mut self, dependend_id: &Uuid) -> Self {
-        self.inner.depends_on = Some(dependend_id.clone());
-        self
-    }
-
-    pub fn dependend_id(mut self, dependend_id: &Uuid) -> Self {
-        self.inner.dependend_id = Some(dependend_id.clone());
-        self
-    }
-
-    pub fn scheduled_at(mut self, scheduled_at: &DateTime<Utc>) -> Self {
-        self.inner.scheduled_at = Some(scheduled_at.clone());
-        self
-    }
-
-    pub fn build(self) -> Result<Task, TaskBuildError> {
-        let inner = self.inner;
-        let kind = inner.kind.ok_or(TaskBuildError::KindMissing)?;
-        let args = inner.args.ok_or(TaskBuildError::ArgsMissing)?;
-
-        let task = Task {
-            scheduled_at: inner.scheduled_at,
-            max_attempts: inner.max_attempts.unwrap_or(3),
-            priority: inner.priority.unwrap_or(3),
-            attempted_by: inner.attempted_by,
-            tags: inner.tags,
-            queue: inner.queue,
-            kind,
-            args,
-            depends_on: inner.depends_on,
-            dependend_id: inner.dependend_id,
-        };
-
-        Ok(task)
-    }
-}
+pub const DEFAULT_QUEUE: &'static str = "default";
 
 pub trait FromTaskContext {
-    type Error: std::error::Error;
+    type Error: Into<Box<dyn Error + Send + Sync>>;
     fn from_context(ctx: &Context) -> Result<Self, Self::Error>
     where
         Self: Sized,
-        Self::Error: std::error::Error;
+        Self::Error: Into<Box<dyn Error + Send + Sync>>;
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum DbTaskError {
+pub enum TaskError {
     #[error("task not found")]
     NotFound,
 }
 
-impl FromTaskContext for DbTask {
-    type Error = DbTaskError;
+impl FromTaskContext for Task {
+    type Error = TaskError;
 
     fn from_context(ctx: &Context) -> Result<Self, Self::Error> {
-        let task = ctx.get::<DbTask>().ok_or(DbTaskError::NotFound)?;
+        let task = ctx.get::<Task>().ok_or(TaskError::NotFound)?;
         Ok(task.clone())
     }
 }
@@ -190,7 +50,7 @@ pub enum CurrentTaskError {
     NotFound,
 
     #[error(transparent)]
-    Task(#[from] DbTaskError),
+    Task(#[from] TaskError),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -206,99 +66,138 @@ impl FromTaskContext for CurrentTask {
     type Error = CurrentTaskError;
 
     fn from_context(ctx: &Context) -> Result<Self, Self::Error> {
-        let current_task = DbTask::from_context(ctx)?;
+        let current_task = Task::from_context(ctx)?;
         Ok(CurrentTask(current_task.args.clone()))
     }
 }
 
-pub trait TaskKind {
-    fn kind() -> String
-    where
-        Self: Sized;
-}
-
-pub struct Tasks<E: Into<Box<dyn Error + Send + Sync>> + 'static>
+pub struct TaskRunner<E: Into<Box<dyn Error + Send + Sync>> + 'static>
 where
     E: std::fmt::Display + Debug,
 {
     db: PgPool,
-    routes: Arc<RwLock<HashMap<String, Box<dyn TaskRunner<Context, E> + Send + Sync>>>>,
+    routes: Arc<RwLock<HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>>>,
     context: Arc<RwLock<Context>>,
+    queue: Arc<TaskQueue>,
+    concurrency: i64,
+    label: Arc<String>,
 }
 
-impl<E: Into<Box<dyn Error + Send + Sync>> + 'static + std::marker::Send> Tasks<E>
+impl<E: Into<Box<dyn Error + Send + Sync>> + 'static + std::marker::Send> TaskRunner<E>
 where
     E: std::fmt::Display + Debug,
 {
-    pub fn router() -> TasksBuilder<E> {
-        TasksBuilder {
+    pub fn new() -> TasksBuilder<E> {
+        let default_queue = TaskQueue::new()
+            .name(DEFAULT_QUEUE)
+            .strategy(SchedulingStrategy::FCFS)
+            .build();
+
+        let inner = TasksBuilderInner {
             routes: HashMap::new(),
             context: Context::new(),
-        }
+            queue: default_queue,
+            concurrency: 10,
+            label: String::from("chang-tasks"),
+        };
+
+        TasksBuilder { inner }
     }
 
-    pub fn start(&self) -> tokio::task::JoinHandle<()> {
-        let context = self.context.clone();
-        let router = self.routes.clone();
-        let task_pool = self.db.clone();
+    pub fn start(&self) -> SelectAll<tokio::task::JoinHandle<()>> {
+        let concurrency = self.concurrency;
 
-        tokio::spawn(async move {
-            loop {
-                let tasks = match TaskService::get_tasks(&task_pool).await {
-                    Ok(tasks) => tasks,
-                    Err(err) => {
-                        println!("task error: failed to fetch tasks {:?}", err);
+        let mut handles: Vec<tokio::task::JoinHandle<()>> = vec![];
+        let token = CancellationToken::new();
+
+        for thread in 0..concurrency {
+            let context = self.context.clone();
+            let router = self.routes.clone();
+            let task_pool = self.db.clone();
+            let queue = self.queue.clone();
+            let label = self.label.clone();
+            let cancel_token = token.clone();
+
+            let handle = tokio::spawn(async move {
+                let thread_label = format!("{} - {}", label, thread);
+
+                loop {
+                    if cancel_token.is_cancelled() {
+                        break;
+                    }
+
+                    let get_tasks = match queue.strategy {
+                        SchedulingStrategy::Priority => {
+                            TaskService::get_priority_tasks(&task_pool, &queue.name, 1).await
+                        }
+                        SchedulingStrategy::FCFS => {
+                            TaskService::get_tasks(&task_pool, &queue.name, 1).await
+                        }
+                    };
+
+                    let tasks = match get_tasks {
+                        Ok(tasks) => tasks,
+                        Err(err) => {
+                            error!(
+                                "[{}] task error: failed to fetch tasks {:?}",
+                                thread_label, err
+                            );
+                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                            continue;
+                        }
+                    };
+
+                    if tasks.len() == 0 {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                         continue;
                     }
-                };
 
-                println!("fetched {} tasks", tasks.len());
+                    let mut futures: Vec<_> = vec![];
 
-                if tasks.len() == 0 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    for task in tasks.into_iter() {
+                        let fut = run_task::<E>(&task_pool, task, &router, &context, &thread_label);
+                        futures.push(Box::pin(fut));
+                    }
+
+                    let _ = future::select_all(futures).await;
                 }
+            });
 
-                let mut futures: Vec<_> = vec![];
+            handles.push(handle);
+        }
 
-                for task_id in tasks.into_iter() {
-                    let fut = run_task::<E>(&task_pool, task_id, &router, &context);
-                    futures.push(Box::pin(fut));
-                }
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.unwrap();
+            info!("Chang Tasks Shutdown requested. Waiting for pending tasks");
+            token.cancel();
+        });
 
-                let _ = future::select_all(futures).await;
-            }
-        })
+        future::select_all(handles)
     }
 }
 
 async fn run_task<E: Into<Box<dyn Error + Send + Sync>>>(
     task_pool: &PgPool,
-    task_id: Uuid,
-    router: &RwLock<HashMap<String, Box<dyn TaskRunner<Context, E> + Send + Sync>>>,
+    task: Task,
+    router: &RwLock<HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>>,
     context: &RwLock<Context>,
+    label: &str,
 ) -> ()
 where
     E: std::fmt::Display + Debug,
 {
-    let task = match TaskService::get_sheduled_task(task_pool, &task_id).await {
-        Ok(task) => task,
-        Err(err) => {
-            println!("task error: failed to fetch task({}) {:?}", task_id, err);
-            return ();
-        }
-    };
-
-    let Some(task) = task else {
-        println!("task error: not found: {}", task_id);
-        return ();
-    };
+    info!("[{}] run task({:?})", label, task.id);
 
     let routes = router.read().await;
     let Some(handler) = routes.get(&task.kind) else {
-        println!("task error: handler not found: {}", task_id);
+        error!(
+            "[{}] task error: handler not found for task {} with kind {}",
+            label, task.id, task.kind
+        );
         return ();
     };
 
+    let task_id = task.id.clone();
     let context = context.read().await;
 
     let mut ctx = Context::from(context.deref());
@@ -307,15 +206,30 @@ where
 
     match handler.call(ctx).await {
         Err(err) => {
-            println!("task({}) failed: {:?}", task_id, err);
             let error = format!("{:?}", err);
-            TaskService::failed(task_pool, &task_id, &error)
-                .await
-                .unwrap();
+            error!("[{}] task({}) failed to run: {:?}", label, task_id, error);
+            if let Err(err) = TaskService::failed(task_pool, &task_id, &error).await {
+                error!(
+                    "[{}] Failed to set task state {:?} task {:?}",
+                    label,
+                    TaskState::Discarded,
+                    err
+                );
+            };
         }
-        Ok(_) => {
-            if let Err(err) = TaskService::complete(task_pool, &task_id).await {
-                println!("Failed to complete task {:?}", err);
+        Ok(state) => {
+            println!("SET TASK STATE: {:?}", state);
+
+            let res = match state {
+                TaskState::Completed => TaskService::complete(task_pool, &task_id).await,
+                _ => TaskService::complete(task_pool, &task_id).await,
+            };
+
+            if let Err(err) = res {
+                error!(
+                    "[{}] Failed to set task state {:?} task {:?}",
+                    label, state, err
+                );
             };
         }
     };
@@ -323,26 +237,34 @@ where
     ()
 }
 
+pub struct TasksBuilderInner<E: Into<Box<dyn Error + Send + Sync>> + 'static>
+where
+    E: std::fmt::Display + Debug,
+{
+    routes: HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>,
+    context: Context,
+    queue: TaskQueue,
+    concurrency: i64,
+    label: String,
+}
 pub struct TasksBuilder<E: Into<Box<dyn Error + Send + Sync>> + 'static>
 where
     E: std::fmt::Display + Debug,
 {
-    routes: HashMap<String, Box<dyn TaskRunner<Context, E> + Send + Sync>>,
-    context: Context,
+    inner: TasksBuilderInner<E>,
 }
 
 impl<E: Into<Box<dyn Error + Send + Sync>> + 'static> TasksBuilder<E>
 where
     E: std::fmt::Display + Debug,
 {
-    pub fn register<K, H, TFut>(mut self, k: K, h: H) -> Self
+    pub fn register<K, H, Arg>(mut self, k: K, h: H) -> Self
     where
         K: Into<String>,
-        H: Fn(Context) -> TFut + Send + Sync + 'static,
-        TFut: Future<Output = Result<(), E>> + Send + 'static,
+        H: TaskHandler<Arg, E> + Sync + 'static + Send,
     {
-        let wrapper = move |req| Box::pin(h(req));
-        self.routes.insert(k.into(), Box::new(wrapper));
+        let wrapper = move |ctx| Box::pin(h.call(ctx));
+        self.inner.routes.insert(k.into(), Box::new(wrapper));
         self
     }
 
@@ -350,30 +272,76 @@ where
     where
         Val: AnyClone + Send + Sync + Clone,
     {
-        self.context.put(value);
+        self.set_context(value);
         self
     }
 
-    pub fn connect(self, db: PgPool) -> Tasks<E> {
-        Tasks {
-            routes: Arc::new(self.routes.into()),
-            db,
-            context: Arc::new(self.context.into()),
+    pub fn set_context<Val>(&mut self, value: Val)
+    where
+        Val: AnyClone + Send + Sync + Clone,
+    {
+        self.inner.context.put(value);
+    }
+
+    pub fn concurrency(mut self, concurrency: i64) -> Self {
+        self.inner.concurrency = concurrency;
+        self
+    }
+
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.inner.label = label.into();
+        self
+    }
+
+    pub fn connect(self, db: &PgPool) -> TaskRunner<E> {
+        TaskRunner {
+            routes: Arc::new(self.inner.routes.into()),
+            db: db.clone(),
+            context: Arc::new(self.inner.context.into()),
+            queue: Arc::new(self.inner.queue),
+            concurrency: self.inner.concurrency,
+            label: Arc::new(self.inner.label),
         }
     }
 }
 
-trait TaskRunner<Ctx, E> {
-    fn call(&self, ctx: Ctx) -> Pin<Box<dyn Future<Output = Result<(), E>> + Send>>;
+pub trait TaskHandler<Ctx, E> {
+    fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Result<TaskState, E>> + Send>>;
 }
 
-impl<F: Sync + 'static, Ret, Ctx, E> TaskRunner<Ctx, E> for F
+impl<F: Sync + 'static, Ret, E> TaskHandler<Context, E> for F
 where
-    F: Fn(Ctx) -> Ret + Sync + 'static,
-    Ret: Future<Output = Result<(), E>> + Send + 'static,
+    F: Fn(Context) -> Ret + Sync + 'static,
+    Ret: Future<Output = Result<TaskState, E>> + Send + 'static,
     E: Into<Box<dyn Error + Send + Sync>>,
 {
-    fn call(&self, req: Ctx) -> Pin<Box<dyn Future<Output = Result<(), E>> + Send>> {
-        Box::pin(self(req))
+    fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Result<TaskState, E>> + Send>> {
+        Box::pin(self(ctx))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Db(pub PgPool);
+
+#[derive(thiserror::Error, Debug)]
+pub enum DbError {
+    #[error("PgPool not found in Context")]
+    PoolNotFound,
+}
+
+impl FromTaskContext for Db {
+    type Error = DbError;
+
+    fn from_context(ctx: &Context) -> Result<Self, Self::Error> {
+        let pool = ctx.get::<PgPool>().ok_or(DbError::PoolNotFound)?;
+        Ok(Db(pool.to_owned()))
+    }
+}
+
+impl Deref for Db {
+    type Target = PgPool;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }

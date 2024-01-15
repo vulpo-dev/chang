@@ -2,8 +2,11 @@
 with insert_history as (
 	insert into chang.task_history(task_id, from_state, to_state)
 	select $1 as task_id
-	     , 'scheduled'::chang.tasks_state as from_state 
-	     , 'running'::chang.tasks_state as to_state
+	     , chang.tasks.state as from_state 
+	     , 'running' as to_state
+      from chang.tasks
+     where id = $1 
+       and state = 'scheduled' 
 	returning task_id as id
 )
 update chang.tasks
@@ -12,6 +15,7 @@ update chang.tasks
      , attempt = attempt + 1
  where id in (select * from insert_history)
 returning id
+        , state as "state: TaskState"
         , attempt
         , scheduled_at
         , max_attempts

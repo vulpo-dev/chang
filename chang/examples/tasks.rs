@@ -1,67 +1,34 @@
-use sqlx::PgPool;
-use std::env;
-
+use chang_core::task::TaskState;
 use dotenv::dotenv;
+use log::{error, info, Level, LevelFilter, Metadata, Record};
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use sqlx::{postgres::PgPoolOptions, types::Uuid};
-use std::ops::Deref;
-use tokio::{self, join};
+use std::env;
+use tokio;
 
 use chang::{
-    db::tasks::Task as DbTask,
-    task::{
-        self, Context, DbTaskError, FromTaskContext, TaskBuildError, TaskContextError, TaskKind,
-        Tasks,
-    },
+    task::{self, Context, Db, FromTaskContext, Task, TaskBuilder, TaskKind, TaskRunner},
     Task,
 };
 
-#[derive(Debug, Clone)]
-pub struct Db(pub PgPool);
+struct SimpleLogger;
 
-#[derive(thiserror::Error, Debug)]
-pub enum DbError {
-    #[error("PgPool not found in Context")]
-    PoolNotFound,
-}
-
-impl FromTaskContext for Db {
-    type Error = DbError;
-
-    fn from_context(ctx: &Context) -> Result<Self, Self::Error> {
-        let pool = ctx.get::<PgPool>().ok_or(DbError::PoolNotFound)?;
-        Ok(Db(pool.to_owned()))
+impl log::Log for SimpleLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.level() <= Level::Info
     }
-}
 
-impl Deref for Db {
-    type Target = PgPool;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            println!("{} - {}", record.level(), record.args());
+        }
     }
+
+    fn flush(&self) {}
 }
 
-#[derive(thiserror::Error, Debug)]
-enum TaskError {
-    #[error(transparent)]
-    TaskContextError(#[from] TaskContextError),
-
-    #[error(transparent)]
-    Db(#[from] sqlx::Error),
-
-    #[error(transparent)]
-    DbCtx(#[from] DbError),
-
-    #[error(transparent)]
-    Task(#[from] DbTaskError),
-
-    #[error(transparent)]
-    TaskBuildError(#[from] TaskBuildError),
-
-    #[error(transparent)]
-    Serialize(#[from] serde_json::Error),
-}
+static LOGGER: SimpleLogger = SimpleLogger;
 
 #[derive(Task, Deserialize, Serialize, Debug)]
 struct ChildTask {
@@ -69,32 +36,33 @@ struct ChildTask {
     nested: bool,
 }
 
-async fn handle_child_task(ctx: Context) -> anyhow::Result<()> {
+async fn handle_child_task(ctx: Context) -> anyhow::Result<TaskState> {
+    info!("Run Child Task");
+
     let child_task = ChildTask::from_context(&ctx)?;
-    println!("{:?}", child_task);
+    info!("{:?}", child_task);
 
     if child_task.nested {
-        return Ok(());
+        return Ok(TaskState::Completed);
     }
 
-    println!("Insert Another ChildTask");
+    info!("Insert Another ChildTask");
 
-    let task = DbTask::from_context(&ctx)?;
     let db = Db::from_context(&ctx)?;
+    let task = Task::from_context(&ctx)?;
 
     let child = ChildTask {
         hello: "Chang".to_string(),
         nested: true,
     };
 
-    task::Task::builder()
-        .task(child)?
+    task::try_from(child)?
         .dependend_id(&task.dependend_id.unwrap())
         .build()?
         .insert(&*db)
         .await?;
 
-    Ok(())
+    Ok(TaskState::Completed)
 }
 
 #[derive(Task, Deserialize, Serialize, Debug)]
@@ -102,69 +70,79 @@ struct ParentTask {
     parent: String,
 }
 
-async fn handle_parent_task(ctx: Context) -> anyhow::Result<()> {
+async fn handle_parent_task(ctx: Context) -> anyhow::Result<TaskState> {
     let task = ParentTask::from_context(&ctx)?;
-    println!("{:?}", task);
-    Ok(())
+    info!("{:?}", task);
+    Ok(TaskState::Completed)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _ = log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Info));
+
     dotenv().ok();
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL environment variable");
+    info!("DATABASE_URL: {:?}", database_url);
 
     let pool = PgPoolOptions::new()
-        .max_connections(1)
+        .max_connections(10)
         .connect(&database_url)
         .await
         .expect("Valid DB connection");
 
     let db = Db(pool.clone());
-    let tasks = Tasks::router()
+    let tasks = TaskRunner::new()
         .register(ParentTask::kind(), handle_parent_task)
         .register(ChildTask::kind(), handle_child_task)
         .add_context(db)
+        .concurrency(10)
         .connect(pool.clone())
         .start();
 
     let insert_pool = pool.clone();
-    let task_fut = tokio::spawn(async move {
+    tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            let dependend_id = Uuid::new_v4();
 
-            let child = ChildTask {
-                hello: "Chang".to_string(),
-                nested: false,
+            match insert_tasks(&insert_pool).await {
+                Ok(_) => info!("Tasks Inserted"),
+                Err(err) => error!("Failed to insert tasks: {:?}", err),
             };
-
-            task::Task::builder()
-                .task(child)
-                .unwrap()
-                .dependend_id(&dependend_id)
-                .build()
-                .unwrap()
-                .insert(&insert_pool)
-                .await
-                .unwrap();
-
-            let parent = ParentTask {
-                parent: dependend_id.to_string(),
-            };
-
-            task::Task::builder()
-                .task(parent)
-                .unwrap()
-                .depends_on(&dependend_id)
-                .build()
-                .unwrap()
-                .insert(&insert_pool)
-                .await
-                .unwrap();
         }
     });
 
-    let _ = join!(task_fut, tasks);
+    let _ = tasks.await;
+
+    Ok(())
+}
+
+async fn insert_tasks(db: &PgPool) -> anyhow::Result<()> {
+    let mut tx = db.begin().await?;
+
+    let dependend_id = Uuid::new_v4();
+
+    let child = ChildTask {
+        hello: "Chang".to_string(),
+        nested: false,
+    };
+
+    task::try_from(child)?
+        .dependend_id(&dependend_id)
+        .build()?
+        .insert(&mut *tx)
+        .await?;
+
+    let parent = ParentTask {
+        parent: dependend_id.to_string(),
+    };
+
+    task::try_from(parent)?
+        .depends_on(&dependend_id)
+        .build()?
+        .insert(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
 
     Ok(())
 }

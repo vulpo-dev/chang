@@ -1,0 +1,109 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\r\nwith insert_history as (\r\n\tinsert into chang.task_history(task_id, from_state, to_state)\r\n\tselect $1 as task_id\r\n\t     , chang.tasks.state as from_state \r\n\t     , 'running' as to_state\r\n      from chang.tasks\r\n     where id = $1 \r\n       and state = 'scheduled' \r\n\treturning task_id as id\r\n)\r\nupdate chang.tasks\r\n   set state = 'running'\r\n     , attempted_at = now()\r\n     , attempt = attempt + 1\r\n where id in (select * from insert_history)\r\nreturning id\r\n        , state as \"state: TaskState\"\r\n        , attempt\r\n        , scheduled_at\r\n        , max_attempts\r\n        , attempted_by\r\n        , tags\r\n        , kind\r\n        , args\r\n        , priority\r\n        , queue\r\n        , depends_on\r\n        , dependend_id\r\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "state: TaskState",
+        "type_info": {
+          "Custom": {
+            "name": "tasks_state",
+            "kind": {
+              "Enum": [
+                "available",
+                "cancelled",
+                "completed",
+                "discarded",
+                "retryable",
+                "running",
+                "scheduled"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "attempt",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 3,
+        "name": "scheduled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "max_attempts",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 5,
+        "name": "attempted_by",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "tags",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "args",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "priority",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 10,
+        "name": "queue",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "depends_on",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 12,
+        "name": "dependend_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "1e8a1b2c3f195dec1fe7112b19af4f4a7d057c267fd18641f58973af044338d2"
+}

@@ -11,6 +11,7 @@ description = "Postgres utilities"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+typeshare = "1.0.0"
 async-trait = "0.1.74"
 chrono = { version = "0.4.31", features = ["serde"] }
 opentelemetry = { version = "0.21.0", features = ["logs"] }
@@ -18,13 +19,15 @@ opentelemetry_sdk = { version = "0.21.0", features = ["metrics", "logs", "logs_l
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0.50"
-tokio = { version = "1.34.0", features = ["full"] }
+tokio = { version = "1.34.0", features = ["full", "signal"] }
+tokio-util = "0.7.10"
 log = { version = "0.4.20", features = ["kv_unstable", "serde", "kv_unstable_serde"] }
 futures-util = "0.3.29"
 futures = "0.3.29"
 uuid = { version = "1.5.0", features = ["serde", "v4"]}
 dotenv = "0.15.0"
 anyhow = "1.0.79"
+rand = "0.8.5"
 
 [dependencies.sqlx]
 version = "0.7"

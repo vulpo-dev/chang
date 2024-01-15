@@ -65,6 +65,14 @@ fn impl_task_macro(ast: &syn::DeriveInput) -> TokenStream {
                 Ok(task)
             }
         }
+
+        impl TryInto<chang::task::TaskBuilder> for #name {
+            type Error = serde_json::Error;
+
+            fn try_into(self) -> Result<TaskBuilder, serde_json::Error> {
+                TaskBuilder::default().task(self)
+            }
+        }
     };
 
     TokenStream::from(impl_event)
