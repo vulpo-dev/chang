@@ -53,4 +53,15 @@ create table if not exists chang.task_error
 		, task_id uuid not null references chang.tasks(id) on delete cascade
 		, error text
 		, created_at timestamptz not null default now()
-		)
+		);
+
+
+create table if not exists chang.periodic_tasks
+	( id uuid primary key default uuid_generate_v4()
+	, queue text not null default 'default'::text
+	, kind text not null
+	, schedule text not null
+	, unique(queue, kind)
+	);
+
+create index chang_periodic_tasks_queue_kind_idx on chang.tasks using btree(queue, kind);

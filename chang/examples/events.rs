@@ -51,7 +51,7 @@ async fn main() {
         nested: Nested { inner: 1 },
     };
 
-    events::capture(yak);
+    events::publish(yak);
 
     sleep(Duration::from_secs(2)).await;
 }

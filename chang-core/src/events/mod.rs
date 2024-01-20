@@ -16,7 +16,7 @@ pub trait Event {
         Self: Sized;
 }
 
-pub fn capture<E: Serialize + Event>(value: E) {
+pub fn publish<E: Serialize + Event>(value: E) {
     let body = serde_json::to_value(value).unwrap();
     let sender = channels::sender();
     let event = EventRecord::new(&E::kind(), body);

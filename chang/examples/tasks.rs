@@ -90,13 +90,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("Valid DB connection");
 
-    let db = Db(pool.clone());
     let tasks = TaskRunner::new()
         .register(ParentTask::kind(), handle_parent_task)
         .register(ChildTask::kind(), handle_child_task)
-        .add_context(db)
         .concurrency(10)
-        .connect(pool.clone())
+        .connect(&pool)
         .start();
 
     let insert_pool = pool.clone();

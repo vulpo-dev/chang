@@ -9,6 +9,14 @@ pub fn try_from(
     task.try_into()
 }
 
+#[derive(Deserialize)]
+pub struct PeriodicTask {
+    pub id: Uuid,
+    pub queue: String,
+    pub kind: String,
+    pub schedule: String,
+}
+
 pub struct NewTask {
     pub scheduled_at: Option<DateTime<Utc>>,
     pub max_attempts: i16,
@@ -107,7 +115,7 @@ impl Default for TaskBuilder {
             tags: vec![],
             kind: None,
             args: None,
-            priority: Some(1),
+            priority: Some(100),
             queue: None,
             depends_on: None,
             dependend_id: None,
@@ -131,6 +139,16 @@ impl TaskBuilder {
         self.inner.args = Some(args);
 
         Ok(())
+    }
+
+    pub fn kind(mut self, kind: &str) -> Self {
+        self.inner.kind = Some(kind.into());
+        self
+    }
+
+    pub fn args(mut self, args: serde_json::Value) -> Self {
+        self.inner.args = Some(args);
+        self
     }
 
     pub fn depends_on(mut self, dependend_id: &Uuid) -> Self {
@@ -203,6 +221,20 @@ impl TaskService {
         .await?;
 
         Ok(row.id)
+    }
+
+    pub async fn batch_insert(
+        _db: impl PgExecutor<'_>,
+        _task: Vec<NewTask>,
+    ) -> sqlx::Result<Vec<Uuid>> {
+        todo!()
+    }
+
+    pub async fn get_periodic_tasks(
+        _db: impl PgExecutor<'_>,
+        _queue: &str,
+    ) -> sqlx::Result<Vec<PeriodicTask>> {
+        todo!()
     }
 
     pub async fn get_tasks(

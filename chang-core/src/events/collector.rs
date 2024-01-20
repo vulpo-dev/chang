@@ -1,9 +1,9 @@
-use log::{as_error, error};
+use log::{as_error, error, info};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time;
+use tokio_util::sync::CancellationToken;
 
 use crate::events::channels;
 use crate::events::exporter::EventExporter;
@@ -42,7 +42,9 @@ impl ChangEventCollector {
         let events = self.events.clone();
         let exporter = self.exporter.clone();
         let timeout = self.interval.clone();
+        let token = CancellationToken::new();
 
+        let cancel_token1 = token.clone();
         tokio::spawn(async move {
             let mut interval = time::interval(timeout);
 
@@ -64,18 +66,32 @@ impl ChangEventCollector {
                 if let Err(err) = result {
                     error!(err = as_error!(err); "Error: failed to export events");
                 }
+
+                if cancel_token1.is_cancelled() {
+                    break;
+                }
             }
         });
 
         let events = self.events.clone();
-
+        let cancel_token2 = token.clone();
         tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
                 events
                     .lock()
                     .expect("failed to lock events")
                     .push(event.clone());
+
+                if cancel_token2.is_cancelled() {
+                    break;
+                }
             }
+        });
+
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.unwrap();
+            info!("Chang Tasks Shutdown requested. Waiting for pending tasks");
+            token.cancel();
         });
     }
 }

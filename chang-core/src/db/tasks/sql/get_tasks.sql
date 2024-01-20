@@ -23,6 +23,7 @@ with available_tasks as (
  	         )
  	       end
  	 order by scheduled_at asc
+            , id asc
  	 limit $2
  	 for update skip locked
 ), insert_history as (
