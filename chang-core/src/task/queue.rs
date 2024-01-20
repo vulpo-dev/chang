@@ -9,7 +9,7 @@ pub struct TaskQueue {
 }
 
 impl TaskQueue {
-    pub fn new() -> TaskQueueBuilder {
+    pub fn builder() -> TaskQueueBuilder {
         TaskQueueBuilder::default()
     }
 }

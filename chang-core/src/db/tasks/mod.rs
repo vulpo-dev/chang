@@ -157,7 +157,7 @@ impl TaskBuilder {
     }
 
     pub fn set_depends_on(&mut self, dependend_id: &Uuid) {
-        self.inner.depends_on = Some(dependend_id.clone());
+        self.inner.depends_on = Some(*dependend_id);
     }
 
     pub fn dependend_id(mut self, dependend_id: &Uuid) -> Self {
@@ -166,7 +166,7 @@ impl TaskBuilder {
     }
 
     pub fn set_dependend_id(&mut self, dependend_id: &Uuid) {
-        self.inner.dependend_id = Some(dependend_id.clone());
+        self.inner.dependend_id = Some(*dependend_id);
     }
 
     pub fn scheduled_at(mut self, scheduled_at: &DateTime<Utc>) -> Self {
@@ -175,7 +175,7 @@ impl TaskBuilder {
     }
 
     pub fn set_scheduled_at(&mut self, scheduled_at: &DateTime<Utc>) {
-        self.inner.scheduled_at = Some(scheduled_at.clone());
+        self.inner.scheduled_at = Some(*scheduled_at);
     }
 
     pub fn build(self) -> Result<NewTask, TaskBuildError> {

@@ -14,7 +14,7 @@ impl From<Vec<opentelemetry_sdk::export::logs::LogData>> for LogData {
     fn from(sdk_logs: Vec<opentelemetry_sdk::export::logs::LogData>) -> LogData {
         let logs = sdk_logs
             .into_iter()
-            .map(|log| LogRecord::from(log))
+            .map(LogRecord::from)
             .collect();
 
         LogData { logs }

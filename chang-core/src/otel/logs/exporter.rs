@@ -32,7 +32,7 @@ impl fmt::Debug for ChangLogExporter {
 impl opentelemetry_sdk::export::logs::LogExporter for ChangLogExporter {
     /// Export spans to postgres
     async fn export(&mut self, batch: Vec<LogData>) -> ExportResult {
-        if self.db.is_closed() == false {
+        if !self.db.is_closed() {
             let data = crate::otel::logs::transform::LogData::from(batch);
             LogsService::batch_insert(&self.db, data)
                 .await

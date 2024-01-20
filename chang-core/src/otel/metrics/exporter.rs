@@ -61,7 +61,7 @@ impl AggregationSelector for ChangMetricsExporter {
 #[async_trait]
 impl PushMetricsExporter for ChangMetricsExporter {
     async fn export(&self, metrics: &mut data::ResourceMetrics) -> Result<()> {
-        if self.db.is_closed() == false {
+        if !self.db.is_closed() {
             let data = crate::otel::metrics::MetricsData::from(metrics);
             MetricsService::batch_insert(&self.db, data)
                 .await

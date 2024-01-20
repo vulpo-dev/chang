@@ -96,6 +96,7 @@ fn serde_to_anyvalue(value: serde_json::Value) -> AnyValue {
 }
 
 #[derive(Debug)]
+#[derive(Default)]
 struct Attributes(Vec<(Key, AnyValue)>);
 
 impl Attributes {
@@ -104,11 +105,7 @@ impl Attributes {
     }
 }
 
-impl Default for Attributes {
-    fn default() -> Self {
-        Attributes(vec![])
-    }
-}
+
 
 impl<'kvs> Visitor<'kvs> for Attributes {
     fn visit_pair(

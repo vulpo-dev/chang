@@ -38,7 +38,7 @@ struct Unit(String);
 
 impl From<opentelemetry::metrics::Unit> for Unit {
     fn from(unit: opentelemetry::metrics::Unit) -> Self {
-        Unit(unit.as_str().to_string().into())
+        Unit(unit.as_str().to_string())
     }
 }
 

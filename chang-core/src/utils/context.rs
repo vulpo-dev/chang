@@ -59,6 +59,12 @@ pub struct Context {
     pub map: AnyMap,
 }
 
+impl Default for Context {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Context {
     pub fn new() -> Context {
         Context {
@@ -73,14 +79,15 @@ impl Context {
     pub fn get<T: 'static + Send + Sync + Clone>(&self) -> Option<&T> {
         self.map
             .get(&TypeId::of::<T>())
-            .and_then(|boxed| (&**boxed).as_any().downcast_ref())
+            .and_then(|boxed| (**boxed).as_any().downcast_ref())
     }
 
-    pub fn keys<'a>(&'a self) -> Vec<&'a TypeId> {
+    pub fn keys(&self) -> Vec<&TypeId> {
         self.map.keys().collect::<Vec<_>>()
     }
 
-    pub fn values<'a>(&'a self) -> Vec<&'a Box<dyn AnyClone + Send + Sync>> {
+    #[allow(clippy::borrowed_box)]
+    pub fn values(&self) -> Vec<&Box<dyn AnyClone + Send + Sync>> {
         self.map.values().collect::<Vec<_>>()
     }
 }

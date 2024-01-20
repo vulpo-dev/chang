@@ -16,7 +16,6 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use std::{fmt::Debug, pin::Pin};
-use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
@@ -38,16 +37,16 @@ pub enum PeriodicJobError {
     PeriodicJobNotFound,
 }
 
-pub const DEFAULT_QUEUE: &'static str = "default";
+pub const DEFAULT_QUEUE: &str = "default";
 
 pub struct TaskRunner<E: Into<Box<dyn Error + Send + Sync>> + 'static>
 where
     E: std::fmt::Display + Debug,
 {
     db: PgPool,
-    routes: Arc<RwLock<HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>>>,
-    periodic_jobs: Arc<RwLock<HashMap<String, String>>>,
-    context: Arc<RwLock<Context>>,
+    routes: Arc<HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>>,
+    periodic_jobs: Arc<HashMap<String, String>>,
+    context: Arc<Context>,
     queue: Arc<TaskQueue>,
     concurrency: i64,
     label: Arc<String>,
@@ -57,8 +56,8 @@ impl<E: Into<Box<dyn Error + Send + Sync>> + 'static + std::marker::Send> TaskRu
 where
     E: std::fmt::Display + Debug,
 {
-    pub fn new() -> TasksBuilder<E> {
-        let default_queue = TaskQueue::new()
+    pub fn builder() -> TasksBuilder<E> {
+        let default_queue = TaskQueue::builder()
             .name(DEFAULT_QUEUE)
             .strategy(SchedulingStrategy::FCFS)
             .build();
@@ -118,7 +117,7 @@ where
                         }
                     };
 
-                    if tasks.len() == 0 {
+                    if tasks.is_empty() {
                         tokio::time::sleep(Duration::from_millis(500)).await;
                         continue;
                     }
@@ -235,28 +234,25 @@ where
 async fn run_task<E: Into<Box<dyn Error + Send + Sync>>>(
     task_pool: &PgPool,
     task: Task,
-    router: &RwLock<HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>>,
-    context: &RwLock<Context>,
+    router: &HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>,
+    context: &Context,
     label: &str,
-) -> ()
-where
+) where
     E: std::fmt::Display + Debug,
 {
     info!("[{}] run task({:?})", label, task.id);
 
-    let routes = router.read().await;
-    let Some(handler) = routes.get(&task.kind) else {
+    let Some(handler) = router.get(&task.kind) else {
         error!(
             "[{}] task error: handler not found for task {} with kind {}",
             label, task.id, task.kind
         );
-        return ();
+        return;
     };
 
-    let task_id = task.id.clone();
-    let context = context.read().await;
+    let task_id = task.id;
 
-    let mut ctx = Context::from(context.deref());
+    let mut ctx = Context::from(context);
     ctx.put(task);
     ctx.put(task_pool.clone());
 
@@ -287,8 +283,6 @@ where
             };
         }
     };
-
-    ()
 }
 
 pub struct TasksBuilderInner<E: Into<Box<dyn Error + Send + Sync>> + 'static>
@@ -365,13 +359,13 @@ where
         self.set_context(PeriodicJob(self.inner.periodic_jobs.clone()));
 
         TaskRunner {
-            routes: Arc::new(self.inner.routes.into()),
+            routes: Arc::new(self.inner.routes),
             db: db.clone(),
-            context: Arc::new(self.inner.context.into()),
+            context: Arc::new(self.inner.context),
             queue: Arc::new(self.inner.queue),
             concurrency: self.inner.concurrency,
             label: Arc::new(self.inner.label),
-            periodic_jobs: Arc::new(self.inner.periodic_jobs.into()),
+            periodic_jobs: Arc::new(self.inner.periodic_jobs),
         }
     }
 }

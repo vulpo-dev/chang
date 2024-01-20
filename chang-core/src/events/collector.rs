@@ -41,7 +41,7 @@ impl ChangEventCollector {
 
         let events = self.events.clone();
         let exporter = self.exporter.clone();
-        let timeout = self.interval.clone();
+        let timeout = self.interval;
         let token = CancellationToken::new();
 
         let cancel_token1 = token.clone();
@@ -57,7 +57,7 @@ impl ChangEventCollector {
                     .drain(0..)
                     .collect();
 
-                if values.len() == 0 {
+                if values.is_empty() {
                     continue;
                 }
 

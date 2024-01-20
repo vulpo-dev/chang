@@ -90,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("Valid DB connection");
 
-    let tasks = TaskRunner::new()
+    let tasks = TaskRunner::builder()
         .register(ParentTask::kind(), handle_parent_task)
         .register(ChildTask::kind(), handle_child_task)
         .concurrency(10)

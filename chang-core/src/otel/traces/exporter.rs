@@ -26,7 +26,7 @@ impl ChangSpanExporter {
 
 impl opentelemetry_sdk::export::trace::SpanExporter for ChangSpanExporter {
     fn export(&mut self, batch: Vec<export::trace::SpanData>) -> BoxFuture<'static, ExportResult> {
-        if self.db.is_closed() == false {
+        if !self.db.is_closed() {
             let data = SpanData::from(batch);
             let res = SpanService::batch_insert(&self.db, data);
             let fut = futures::executor::block_on(res).map_err(|err| {

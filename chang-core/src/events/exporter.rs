@@ -26,7 +26,7 @@ impl ChangEventExporter {
 #[async_trait]
 impl EventExporter for ChangEventExporter {
     async fn export(&self, batch: Vec<EventRecord>) -> Result<()> {
-        if self.db.is_closed() == false {
+        if !self.db.is_closed() {
             let data = EventData::from(batch);
             EventsService::batch_insert(&self.db, data).await?;
             Ok(())
