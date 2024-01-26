@@ -9,11 +9,11 @@ pub struct PartitionHash {
     pub remainder: u8,
 }
 
-impl Into<PartitionHash> for (u8, u8) {
-    fn into(self) -> PartitionHash {
+impl From<(u8, u8)> for PartitionHash {
+    fn from(value: (u8, u8)) -> Self {
         PartitionHash {
-            modulus: self.0,
-            remainder: self.1,
+            modulus: value.0,
+            remainder: value.1,
         }
     }
 }
@@ -23,20 +23,20 @@ pub struct PartitionRange {
     pub to: String,
 }
 
-impl Into<PartitionRange> for (String, String) {
-    fn into(self) -> PartitionRange {
+impl From<(String, String)> for PartitionRange {
+    fn from(value: (String, String)) -> Self {
         PartitionRange {
-            from: self.0,
-            to: self.1,
+            from: value.0,
+            to: value.1,
         }
     }
 }
 
-impl Into<PartitionRange> for (&str, &str) {
-    fn into(self) -> PartitionRange {
+impl From<(&str, &str)> for PartitionRange {
+    fn from(value: (&str, &str)) -> Self {
         PartitionRange {
-            from: self.0.into(),
-            to: self.1.into(),
+            from: value.0.to_string(),
+            to: value.1.to_string(),
         }
     }
 }
@@ -156,7 +156,7 @@ impl Partition {
         if let Some(list) = self.inner.list {
             let items = list
                 .iter()
-                .map(|val| val.replace("'", "\\'"))
+                .map(|val| val.replace('\'', "\\'"))
                 .map(|val| format!("'{}'", val))
                 .collect::<Vec<String>>()
                 .join(",");
@@ -182,7 +182,7 @@ impl Partition {
         let query = query_builder.build();
         let sql = query.sql();
         debug!("{:?}", sql);
-        sqlx::query(&sql).execute(db).await?;
+        sqlx::query(sql).execute(db).await?;
 
         Ok(())
     }
@@ -260,7 +260,7 @@ const MAX_IDENTIFIER_LENGTH: usize = 64;
 
 pub fn is_valid_table_name(name: &str) -> Result<(), TableNameError> {
     let re = RE_CELL.get_or_init(|| Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap());
-    let parts = name.split(".").collect::<Vec<&str>>();
+    let parts = name.split('.').collect::<Vec<&str>>();
 
     if parts.len() > 2 {
         return Err(TableNameError::InvalidCharacters { name: name.into() });

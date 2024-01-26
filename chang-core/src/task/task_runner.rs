@@ -199,7 +199,6 @@ where
 
             if let Err(err) = task.insert(&db).await {
                 error!("failed to insert task({}): {:?}", kind, err);
-                return;
             }
         });
 

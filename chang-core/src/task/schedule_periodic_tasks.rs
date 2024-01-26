@@ -49,7 +49,7 @@ pub async fn schedule_periodic_task(ctx: Context) -> anyhow::Result<TaskState> {
         .insert(&*db)
         .await?;
 
-    return Ok(TaskState::Completed);
+    Ok(TaskState::Completed)
 }
 
 pub fn get_scheduled_tasks(periodic_jobs: &[(&String, &String)], queue: &str) -> Vec<NewTask> {
@@ -60,15 +60,15 @@ pub fn get_scheduled_tasks(periodic_jobs: &[(&String, &String)], queue: &str) ->
     let end_next_hour = start_next_hour + Duration::from_secs(60 * 60);
 
     periodic_jobs
-        .into_iter()
+        .iter()
         .filter_map(|(kind, schedule)| {
-            cron::Schedule::from_str(&schedule).ok().map(|schedule| {
+            cron::Schedule::from_str(schedule).ok().map(|schedule| {
                 schedule
                     .after(&start_next_hour)
                     .take_while(|schedule_at| schedule_at < &end_next_hour)
                     .map(|schedule_at| {
                         Task::builder()
-                            .kind(&kind)
+                            .kind(kind)
                             .args(serde_json::value::Value::Null)
                             .scheduled_at(&schedule_at)
                             .queue(queue)
