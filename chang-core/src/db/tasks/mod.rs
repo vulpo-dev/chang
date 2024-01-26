@@ -9,14 +9,6 @@ pub fn try_from(
     task.try_into()
 }
 
-#[derive(Deserialize)]
-pub struct PeriodicTask {
-    pub id: Uuid,
-    pub queue: String,
-    pub kind: String,
-    pub schedule: String,
-}
-
 pub struct NewTask {
     pub scheduled_at: Option<DateTime<Utc>>,
     pub max_attempts: i16,
@@ -160,6 +152,24 @@ impl TaskBuilder {
         self.inner.depends_on = Some(*dependend_id);
     }
 
+    pub fn queue(mut self, queue: &str) -> Self {
+        self.set_queue(queue);
+        self
+    }
+
+    pub fn set_queue(&mut self, queue: &str) {
+        self.inner.queue = Some((*queue).to_string());
+    }
+
+    pub fn priority(mut self, priority: i16) -> Self {
+        self.set_priority(priority);
+        self
+    }
+
+    pub fn set_priority(&mut self, priority: i16) {
+        self.inner.priority = Some(priority);
+    }
+
     pub fn dependend_id(mut self, dependend_id: &Uuid) -> Self {
         self.set_dependend_id(dependend_id);
         self
@@ -230,10 +240,11 @@ impl TaskService {
         todo!()
     }
 
-    pub async fn get_periodic_tasks(
+    pub async fn get_task_by_kind(
         _db: impl PgExecutor<'_>,
+        _kind: &str,
         _queue: &str,
-    ) -> sqlx::Result<Vec<PeriodicTask>> {
+    ) -> sqlx::Result<Option<Task>> {
         todo!()
     }
 

@@ -1,7 +1,9 @@
 use super::queue::{SchedulingStrategy, TaskQueue};
 use super::FromTaskContext;
+use crate::db::tasks::TaskKind;
+
 use crate::db::tasks::{Task, TaskService, TaskState};
-use crate::task::NewTask;
+use crate::task::ChangSchedulePeriodicTask;
 use crate::utils::context::{AnyClone, Context};
 
 use chrono::{Timelike, Utc};
@@ -12,29 +14,37 @@ use log::{error, info};
 use sqlx::PgPool;
 use std::error::Error;
 use std::ops::Deref;
-use std::str::FromStr;
 use std::time::Duration;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map, HashMap},
+    sync::Arc,
+};
 use std::{fmt::Debug, pin::Pin};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
-pub struct PeriodicJob(HashMap<String, String>);
+pub struct PeriodicJobs(HashMap<String, String>);
 
-impl FromTaskContext for PeriodicJob {
-    type Error = PeriodicJobError;
+impl PeriodicJobs {
+    pub fn entries(&self) -> hash_map::Iter<'_, String, String> {
+        self.0.iter()
+    }
+}
+
+impl FromTaskContext for PeriodicJobs {
+    type Error = PeriodicJobsError;
 
     fn from_context(ctx: &Context) -> Result<Self, Self::Error> {
-        ctx.get::<PeriodicJob>()
-            .ok_or(PeriodicJobError::PeriodicJobNotFound)
+        ctx.get::<PeriodicJobs>()
+            .ok_or(PeriodicJobsError::PeriodicJobsNotFound)
             .cloned()
     }
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum PeriodicJobError {
-    #[error("PeriodicJob not found in Context")]
-    PeriodicJobNotFound,
+pub enum PeriodicJobsError {
+    #[error("PeriodicJobs not found in Context")]
+    PeriodicJobsNotFound,
 }
 
 pub const DEFAULT_QUEUE: &str = "default";
@@ -96,6 +106,11 @@ where
                         break;
                     }
 
+                    if task_pool.is_closed() {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        continue;
+                    }
+
                     let get_tasks = match queue.strategy {
                         SchedulingStrategy::Priority => {
                             TaskService::get_priority_tasks(&task_pool, &queue.name, 1).await
@@ -137,87 +152,54 @@ where
         }
 
         let periodic_jobs = self.periodic_jobs.clone();
-        tokio::spawn(async move {
-            let _periodic_jobs = periodic_jobs;
-            // todo: upsert periodic jobs
-            // todo: delete unused jobs
-        });
-
-        let pool = self.db.clone();
         let queue = self.queue.clone();
-        let cancel_token = token.clone();
+        let db = self.db.clone();
         tokio::spawn(async move {
-            loop {
-                let mut tx = pool.begin().await.unwrap();
-                let periodic_jobs =
-                    match TaskService::get_periodic_tasks(&mut *tx, &queue.name).await {
-                        Err(err) => {
-                            error!("Failed to get periodic tasks {:?}", err);
-                            tx.rollback().await.unwrap();
-                            let schedule_in = 60 - Utc::now().minute();
+            // try insert chang_schedule_periodic_tasks task
 
-                            let sleep =
-                                tokio::time::sleep(Duration::from_secs((schedule_in * 60).into()));
+            if periodic_jobs.is_empty() {
+                return;
+            }
 
-                            tokio::select! {
-                                _ = sleep => {
-                                    continue;
-                                }
+            let kind = ChangSchedulePeriodicTask::kind();
 
-                                _ = cancel_token.cancelled() => {
-                                    break;
-                                }
-                            }
-                        }
-
-                        Ok(value) => value,
-                    };
-
-                let hour = Duration::from_secs(60 * 60);
-                let start_time = Utc::now() + hour;
-                let schedule_in = 60 - start_time.minute();
-                let start_next_hour = start_time + Duration::from_secs((schedule_in * 60).into());
-                let end_next_hour = start_next_hour + Duration::from_secs(60 * 60);
-
-                let tasks = periodic_jobs
-                    .into_iter()
-                    .filter_map(|job| {
-                        cron::Schedule::from_str(&job.schedule)
-                            .ok()
-                            .map(|schedule| {
-                                schedule
-                                    .after(&start_next_hour)
-                                    .take_while(|schedule_at| schedule_at < &end_next_hour)
-                                    .map(|schedule_at| {
-                                        Task::builder()
-                                            .kind(&job.kind)
-                                            .args(serde_json::value::Value::Null)
-                                            .scheduled_at(&schedule_at)
-                                            .build()
-                                            .unwrap()
-                                    })
-                                    .collect::<Vec<NewTask>>()
-                            })
-                    })
-                    .flatten()
-                    .collect::<Vec<NewTask>>();
-
-                TaskService::batch_insert(&mut *tx, tasks).await.unwrap();
-
-                tx.commit().await.unwrap();
-
-                let schedule_in = 60 - Utc::now().minute();
-                let sleep = tokio::time::sleep(Duration::from_secs((schedule_in * 60).into()));
-
-                tokio::select! {
-                    _ = sleep => {
-                        continue;
-                    }
-
-                    _ = cancel_token.cancelled() => {
-                        break;
-                    }
+            let current_task = match TaskService::get_task_by_kind(&db, &kind, &queue.name).await {
+                Err(err) => {
+                    error!("failed to fetch current task({}): {:?}", kind, err);
+                    return;
                 }
+
+                Ok(ct) => ct,
+            };
+
+            if current_task.is_some() {
+                return;
+            }
+
+            let now = Utc::now();
+            let seconds = now.minute() * 60;
+            let start_of_hour = now - Duration::from_secs(seconds.into());
+
+            let task = Task::builder()
+                .kind(&kind)
+                .args(serde_json::Value::Null)
+                .scheduled_at(&start_of_hour)
+                .priority(std::i16::MAX)
+                .queue(&queue.name)
+                .build();
+
+            let task = match task {
+                Err(err) => {
+                    error!("failed to build task({}): {:?}", kind, err);
+                    return;
+                }
+
+                Ok(task) => task,
+            };
+
+            if let Err(err) = task.insert(&db).await {
+                error!("failed to insert task({}): {:?}", kind, err);
+                return;
             }
         });
 
@@ -356,7 +338,7 @@ where
 
     pub fn connect(mut self, db: &PgPool) -> TaskRunner<E> {
         self.set_context(db.clone());
-        self.set_context(PeriodicJob(self.inner.periodic_jobs.clone()));
+        self.set_context(PeriodicJobs(self.inner.periodic_jobs.clone()));
 
         TaskRunner {
             routes: Arc::new(self.inner.routes),

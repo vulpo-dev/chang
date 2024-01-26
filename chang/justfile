@@ -17,3 +17,6 @@ example-events:
 
 example-tasks:
 	cargo run --example tasks
+
+example-partition:
+	cargo run --example partition
