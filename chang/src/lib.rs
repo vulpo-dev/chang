@@ -1,3 +1,4 @@
+pub use chang_core::database;
 pub use chang_core::db;
 pub use chang_core::error;
 pub use chang_core::events;
