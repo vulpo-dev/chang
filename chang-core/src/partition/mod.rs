@@ -1,8 +1,8 @@
 use log::debug;
-use regex::Regex;
 use sqlx::Execute;
 use sqlx::{PgExecutor, Postgres, QueryBuilder};
-use std::sync::OnceLock;
+
+use crate::utils::{self, name::NameError};
 
 pub struct PartitionHash {
     pub modulus: u8,
@@ -44,12 +44,12 @@ impl From<(&str, &str)> for PartitionRange {
 #[derive(thiserror::Error, Debug)]
 pub enum PartitionError {
     #[error(transparent)]
-    TableName(#[from] TableNameError),
+    TableName(#[from] NameError),
 
     #[error("partion name is empty")]
     PartitionNameMissing,
 
-    #[error("partion name is empty")]
+    #[error("partion source name is empty")]
     FromTableNameMissing,
 
     #[error("invalid arguments")]
@@ -121,14 +121,14 @@ impl Partition {
             .name
             .ok_or(PartitionError::PartitionNameMissing)?;
 
-        is_valid_table_name(&name)?;
+        utils::name::is_valid(&name)?;
 
         let from = self
             .inner
             .from
             .ok_or(PartitionError::FromTableNameMissing)?;
 
-        is_valid_table_name(&from)?;
+        utils::name::is_valid(&from)?;
 
         let args = [
             self.inner.range.is_none(),
@@ -174,7 +174,7 @@ impl Partition {
         }
 
         if let Some(tablespace) = self.inner.tablespace {
-            is_valid_table_name(&tablespace)?;
+            utils::name::is_valid(&tablespace)?;
             let tablespace_query = format!("tablespace {tablespace}");
             query_builder.push(tablespace_query);
         }
@@ -193,14 +193,14 @@ impl Partition {
             .name
             .ok_or(PartitionError::PartitionNameMissing)?;
 
-        is_valid_table_name(&name)?;
+        utils::name::is_valid(&name)?;
 
         let from = self
             .inner
             .from
             .ok_or(PartitionError::FromTableNameMissing)?;
 
-        is_valid_table_name(&from)?;
+        utils::name::is_valid(&from)?;
 
         let query = format!("alter table {from} detach partition {name};");
         debug!("{:?}", query);
@@ -215,14 +215,14 @@ impl Partition {
             .name
             .ok_or(PartitionError::PartitionNameMissing)?;
 
-        is_valid_table_name(&name)?;
+        utils::name::is_valid(&name)?;
 
         let from = self
             .inner
             .from
             .ok_or(PartitionError::FromTableNameMissing)?;
 
-        is_valid_table_name(&from)?;
+        utils::name::is_valid(&from)?;
 
         let query = format!("alter table {from} detach partition {name} concurrently;");
         debug!("{:?}", query);
@@ -237,7 +237,7 @@ impl Partition {
             .name
             .ok_or(PartitionError::PartitionNameMissing)?;
 
-        is_valid_table_name(&name)?;
+        utils::name::is_valid(&name)?;
 
         let query = format!("drop table {name};");
         debug!("{:?}", query);
@@ -246,33 +246,55 @@ impl Partition {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum TableNameError {
-    #[error("table names cannot be longer than 63 characters")]
-    TooLong,
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::utils;
 
-    #[error("table name {name:?} contains invalid characters")]
-    InvalidCharacters { name: String },
-}
+    use sqlx::postgres::Postgres;
 
-static RE_CELL: OnceLock<Regex> = OnceLock::new();
-const MAX_IDENTIFIER_LENGTH: usize = 64;
+    #[tokio::test]
+    async fn can_create_partition() {
+        let prepare = utils::test::prepare().await;
 
-pub fn is_valid_table_name(name: &str) -> Result<(), TableNameError> {
-    let re = RE_CELL.get_or_init(|| Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap());
-    let parts = name.split('.').collect::<Vec<&str>>();
+        sqlx::query::<Postgres>(
+            "create table if not exists partition_example(
+                  id serial
+                , created_at timestamptz not null default now()
+            ) partition by range(created_at)",
+        )
+        .execute(&prepare.pool)
+        .await
+        .unwrap();
 
-    if parts.len() > 2 {
-        return Err(TableNameError::InvalidCharacters { name: name.into() });
-    }
+        Partition::new()
+            .name("partition_example_fuu")
+            .from("partition_example")
+            .range(("2006-02-01", "2006-03-01"))
+            .create(&prepare.pool)
+            .await
+            .unwrap();
 
-    if parts.iter().any(|name| name.len() >= MAX_IDENTIFIER_LENGTH) {
-        return Err(TableNameError::TooLong);
-    }
+        sqlx::query::<Postgres>(
+            "create unique index partition_example_fuu_idx on partition_example_fuu (id);",
+        )
+        .execute(&prepare.pool)
+        .await
+        .unwrap();
 
-    if parts.iter().any(|name| !re.is_match(name)) {
-        Err(TableNameError::InvalidCharacters { name: name.into() })
-    } else {
-        Ok(())
+        Partition::new()
+            .name("partition_example_fuu")
+            .from("partition_example")
+            .detach(&prepare.pool)
+            .await
+            .unwrap();
+
+        Partition::new()
+            .name("partition_example_fuu")
+            .drop(&prepare.pool)
+            .await
+            .unwrap();
+
+        utils::test::cleanup(prepare).await;
     }
 }

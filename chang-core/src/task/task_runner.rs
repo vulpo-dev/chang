@@ -1,25 +1,26 @@
 use super::queue::{SchedulingStrategy, TaskQueue};
 use super::FromTaskContext;
 use crate::db::tasks::TaskKind;
+use crate::task::run_task::run_task;
 
-use crate::db::tasks::{Task, TaskService, TaskState};
+use crate::db::tasks::{Task, TaskService};
+use crate::task::traits::TaskHandler;
 use crate::task::ChangSchedulePeriodicTask;
 use crate::utils::context::{AnyClone, Context};
 
 use chrono::{Timelike, Utc};
 use futures::future;
 use futures_util::future::SelectAll;
-use futures_util::Future;
 use log::{error, info};
 use sqlx::PgPool;
 use std::error::Error;
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::time::Duration;
 use std::{
     collections::{hash_map, HashMap},
     sync::Arc,
 };
-use std::{fmt::Debug, pin::Pin};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
@@ -163,16 +164,17 @@ where
 
             let kind = ChangSchedulePeriodicTask::kind();
 
-            let current_task = match TaskService::get_task_by_kind(&db, &kind, &queue.name).await {
-                Err(err) => {
-                    error!("failed to fetch current task({}): {:?}", kind, err);
-                    return;
-                }
+            let current_task =
+                match TaskService::get_tasks_by_kind(&db, &kind, &queue.name, 1).await {
+                    Err(err) => {
+                        error!("failed to fetch current task({}): {:?}", kind, err);
+                        return;
+                    }
 
-                Ok(ct) => ct,
-            };
+                    Ok(ct) => ct,
+                };
 
-            if current_task.is_some() {
+            if current_task.first().is_some() {
                 return;
             }
 
@@ -210,60 +212,6 @@ where
 
         future::select_all(handles)
     }
-}
-
-async fn run_task<E: Into<Box<dyn Error + Send + Sync>>>(
-    task_pool: &PgPool,
-    task: Task,
-    router: &HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>,
-    context: &Context,
-    label: &str,
-) where
-    E: std::fmt::Display + Debug,
-{
-    info!("[{}] run task({:?})", label, task.id);
-
-    let Some(handler) = router.get(&task.kind) else {
-        error!(
-            "[{}] task error: handler not found for task {} with kind {}",
-            label, task.id, task.kind
-        );
-        return;
-    };
-
-    let task_id = task.id;
-
-    let mut ctx = Context::from(context);
-    ctx.put(task);
-    ctx.put(task_pool.clone());
-
-    match handler.call(ctx).await {
-        Err(err) => {
-            let error = format!("{:?}", err);
-            error!("[{}] task({}) failed to run: {:?}", label, task_id, error);
-            if let Err(err) = TaskService::failed(task_pool, &task_id, &error).await {
-                error!(
-                    "[{}] Failed to set task state {:?} task {:?}",
-                    label,
-                    TaskState::Discarded,
-                    err
-                );
-            };
-        }
-        Ok(state) => {
-            let res = match state {
-                TaskState::Completed => TaskService::complete(task_pool, &task_id).await,
-                _ => TaskService::complete(task_pool, &task_id).await,
-            };
-
-            if let Err(err) = res {
-                error!(
-                    "[{}] Failed to set task state {:?} task {:?}",
-                    label, state, err
-                );
-            };
-        }
-    };
 }
 
 pub struct TasksBuilderInner<E: Into<Box<dyn Error + Send + Sync>> + 'static>
@@ -348,21 +296,6 @@ where
             label: Arc::new(self.inner.label),
             periodic_jobs: Arc::new(self.inner.periodic_jobs),
         }
-    }
-}
-
-pub trait TaskHandler<Ctx, E> {
-    fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Result<TaskState, E>> + Send>>;
-}
-
-impl<F: Sync + 'static, Ret, E> TaskHandler<Context, E> for F
-where
-    F: Fn(Context) -> Ret + Sync + 'static,
-    Ret: Future<Output = Result<TaskState, E>> + Send + 'static,
-    E: Into<Box<dyn Error + Send + Sync>>,
-{
-    fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Result<TaskState, E>> + Send>> {
-        Box::pin(self(ctx))
     }
 }
 

@@ -2,11 +2,8 @@ use opentelemetry::{logs::AnyValue, Key, KeyValue};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Default)]
 pub struct AttributeSet(pub BTreeMap<String, serde_json::Value>);
-
-
 
 impl From<&opentelemetry_sdk::AttributeSet> for AttributeSet {
     fn from(value: &opentelemetry_sdk::AttributeSet) -> Self {
@@ -52,15 +49,12 @@ impl From<Vec<(Key, AnyValue)>> for AttributeSet {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Resource {
     attributes: AttributeSet,
     dropped_attributes_count: u64,
     schema_url: Option<String>,
 }
-
-
 
 impl From<&opentelemetry_sdk::Resource> for Resource {
     fn from(value: &opentelemetry_sdk::Resource) -> Self {

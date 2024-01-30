@@ -65,6 +65,7 @@ impl ChangEventCollector {
 
                 if let Err(err) = result {
                     error!(err = as_error!(err); "Error: failed to export events");
+                    // TODO: add retry
                 }
 
                 if cancel_token1.is_cancelled() {
@@ -79,7 +80,7 @@ impl ChangEventCollector {
             while let Some(event) = rx.recv().await {
                 events
                     .lock()
-                    .expect("failed to lock events")
+                    .expect("failed to lock events") // TODO: add retry?
                     .push(event.clone());
 
                 if cancel_token2.is_cancelled() {
@@ -133,5 +134,89 @@ impl ChangEventCollectorBuilder {
         event_collector.start();
 
         event_collector
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{
+        db::migration,
+        events::{self, exporter::ChangEventExporter, Event},
+        utils,
+    };
+
+    use fake::{faker::lorem::en::Word, Fake};
+    use rand::Rng;
+    use serde::{Deserialize, Serialize};
+    use tokio::time::{sleep, Duration};
+
+    #[derive(Deserialize, Serialize)]
+    struct Nested {
+        inner: i32,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    struct Yak {
+        name: String,
+        other: String,
+        nested: Nested,
+    }
+
+    impl Event for Yak {
+        fn kind() -> String {
+            String::from("yak")
+        }
+
+        fn from_event(value: &serde_json::Value) -> serde_json::Result<Self> {
+            serde_json::from_value(value.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn collector() {
+        let prepare = utils::test::prepare().await;
+
+        migration::base(&prepare.pool).await;
+        migration::events(&prepare.pool).await;
+
+        let exporter = ChangEventExporter::new(&prepare.pool);
+        let _collector = ChangEventCollector::builder()
+            .with_exporter(exporter)
+            .with_interval(Duration::from_millis(100))
+            .start();
+
+        for event in get_records().into_iter() {
+            events::publish(event);
+        }
+
+        sleep(Duration::from_millis(500)).await;
+
+        // TODO: assert inserted items
+
+        utils::test::cleanup(prepare).await;
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn panic_without_exporter() {
+        let _collector = ChangEventCollector::builder()
+            .with_interval(Duration::from_millis(100))
+            .start();
+    }
+
+    fn get_records() -> Vec<Yak> {
+        let mut records: Vec<Yak> = Vec::new();
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..10 {
+            records.push(Yak {
+                name: Word().fake(),
+                other: Word().fake(),
+                nested: Nested { inner: rng.gen() },
+            });
+        }
+
+        records
     }
 }

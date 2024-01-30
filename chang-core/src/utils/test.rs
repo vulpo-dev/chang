@@ -78,3 +78,20 @@ pub fn get_object() -> serde_json::Value {
 
     serde_json::Value::Object(map)
 }
+
+pub mod events {
+    use crate::events::transform::EventRecord;
+    use crate::utils::test;
+    use fake::{faker::lorem::en::Word, Fake};
+
+    pub fn get_records() -> Vec<EventRecord> {
+        let mut records: Vec<EventRecord> = Vec::new();
+        for _ in 0..10 {
+            let kind = Word().fake();
+            let body = test::get_object();
+            records.push(EventRecord::new(kind, body));
+        }
+
+        records
+    }
+}

@@ -1,9 +1,12 @@
 use crate::db::tasks::Task;
 use crate::utils::context::{Context, CurrentTask};
 
+use crate::db::tasks::TaskState;
+use futures_util::Future;
 use log::error;
 use std::error::Error;
 use std::fmt::Debug;
+use std::pin::Pin;
 
 pub trait FromTaskContext {
     type Error: Into<Box<dyn Error + Send + Sync>>;
@@ -52,5 +55,20 @@ impl FromTaskContext for CurrentTask {
     fn from_context(ctx: &Context) -> Result<Self, Self::Error> {
         let current_task = Task::from_context(ctx)?;
         Ok(CurrentTask(current_task.args.clone()))
+    }
+}
+
+pub trait TaskHandler<Ctx, E> {
+    fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Result<TaskState, E>> + Send>>;
+}
+
+impl<F: Sync + 'static, Ret, E> TaskHandler<Context, E> for F
+where
+    F: Fn(Context) -> Ret + Sync + 'static,
+    Ret: Future<Output = Result<TaskState, E>> + Send + 'static,
+    E: Into<Box<dyn Error + Send + Sync>>,
+{
+    fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Result<TaskState, E>> + Send>> {
+        Box::pin(self(ctx))
     }
 }

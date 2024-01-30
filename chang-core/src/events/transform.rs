@@ -2,12 +2,12 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, PartialEq)]
 pub struct EventData {
     pub events: Vec<EventRecord>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct EventRecord {
     pub id: Uuid,
     pub kind: String,
@@ -29,5 +29,24 @@ impl EventRecord {
 impl From<Vec<EventRecord>> for EventData {
     fn from(events: Vec<EventRecord>) -> Self {
         EventData { events }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::utils;
+
+    #[test]
+    fn event_data_from_event_records() {
+        let records = utils::test::events::get_records();
+
+        let expected = EventData {
+            events: records.clone(),
+        };
+
+        let event_data = EventData::from(records);
+
+        assert_eq!(expected, event_data);
     }
 }

@@ -41,11 +41,6 @@ mod tests {
     use super::*;
     use crate::{db::migration, error::Error, utils};
 
-    use chrono::Utc;
-    use fake::faker::lorem::en::Word;
-    use fake::Fake;
-    use uuid::Uuid;
-
     #[tokio::test]
     async fn export_events() {
         let prepare = utils::test::prepare().await;
@@ -55,7 +50,7 @@ mod tests {
 
         let exporter = ChangEventExporter::new(&prepare.pool);
 
-        let records = get_records();
+        let records = utils::test::events::get_records();
 
         exporter
             .export(records)
@@ -76,7 +71,7 @@ mod tests {
 
         exporter.db.close().await;
 
-        let records = get_records();
+        let records = utils::test::events::get_records();
 
         let error = exporter.export(records).await;
         utils::test::cleanup(prepare).await;
@@ -88,19 +83,5 @@ mod tests {
             e,
             Error::Other(x) if x == "exporter is shut down".to_string()
         ));
-    }
-
-    fn get_records() -> Vec<EventRecord> {
-        let mut records: Vec<EventRecord> = Vec::new();
-        for _ in 0..10 {
-            records.push(EventRecord {
-                id: Uuid::new_v4(),
-                kind: Word().fake(),
-                body: utils::test::get_object(),
-                created_at: Utc::now(),
-            });
-        }
-
-        records
     }
 }

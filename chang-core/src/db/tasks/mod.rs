@@ -9,6 +9,7 @@ pub fn try_from(
     task.try_into()
 }
 
+#[derive(PartialEq, Debug, Clone, Serialize)]
 pub struct NewTask {
     pub scheduled_at: Option<DateTime<Utc>>,
     pub max_attempts: i16,
@@ -234,18 +235,34 @@ impl TaskService {
     }
 
     pub async fn batch_insert(
-        _db: impl PgExecutor<'_>,
-        _task: Vec<NewTask>,
-    ) -> sqlx::Result<Vec<Uuid>> {
-        todo!()
+        db: impl PgExecutor<'_>,
+        tasks: &[NewTask],
+    ) -> crate::error::Result<Vec<Uuid>> {
+        let data = serde_json::to_value(&tasks)?;
+        let rows = sqlx::query_file!("src/db/tasks/sql/batch_insert.sql", data)
+            .fetch_all(db)
+            .await?;
+
+        let ids = rows.into_iter().map(|row| row.id).collect::<Vec<Uuid>>();
+        Ok(ids)
     }
 
-    pub async fn get_task_by_kind(
-        _db: impl PgExecutor<'_>,
-        _kind: &str,
-        _queue: &str,
-    ) -> sqlx::Result<Option<Task>> {
-        todo!()
+    pub async fn get_tasks_by_kind(
+        db: impl PgExecutor<'_>,
+        kind: &str,
+        queue: &str,
+        limit: i64,
+    ) -> sqlx::Result<Vec<Task>> {
+        let rows = sqlx::query_file_as!(
+            Task,
+            "src/db/tasks/sql/get_tasks_by_kind.sql",
+            kind,
+            queue,
+            limit
+        )
+        .fetch_all(db)
+        .await?;
+        Ok(rows)
     }
 
     pub async fn get_tasks(

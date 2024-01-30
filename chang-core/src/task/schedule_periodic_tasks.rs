@@ -1,4 +1,4 @@
-use chrono::{Timelike, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use cron;
 use std::iter::Iterator;
 use std::str::FromStr;
@@ -25,20 +25,18 @@ pub async fn schedule_periodic_task(ctx: Context) -> anyhow::Result<TaskState> {
     let periodic_jobs = PeriodicJobs::from_context(&ctx)?;
 
     let queue = task.queue.unwrap_or("default".to_string());
+    let schedule = get_schedule(Utc::now());
     let tasks = get_scheduled_tasks(
+        schedule,
         &periodic_jobs.entries().collect::<Vec<(&String, &String)>>(),
         &queue,
     );
 
-    if tasks.is_empty() {
-        return Ok(TaskState::Completed);
+    if !tasks.is_empty() {
+        TaskService::batch_insert(&*db, &tasks).await?;
     }
 
-    TaskService::batch_insert(&*db, tasks).await?;
-
-    let now = Utc::now();
-    let schedule_in = (60 - now.minute()) * 60;
-    let scheduled_at = now + Duration::from_secs(schedule_in.into());
+    let scheduled_at = get_next_periodic_task_schedule(Utc::now());
 
     Task::builder()
         .kind(&ChangSchedulePeriodicTask::kind())
@@ -52,20 +50,40 @@ pub async fn schedule_periodic_task(ctx: Context) -> anyhow::Result<TaskState> {
     Ok(TaskState::Completed)
 }
 
-pub fn get_scheduled_tasks(periodic_jobs: &[(&String, &String)], queue: &str) -> Vec<NewTask> {
-    let hour = Duration::from_secs(60 * 60);
-    let start_time = Utc::now() + hour;
+fn get_next_periodic_task_schedule(now: DateTime<Utc>) -> DateTime<Utc> {
+    let schedule_in = (60 - now.minute()) * 60;
+    now + Duration::from_secs(schedule_in.into()) - Duration::from_secs(now.second().into())
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ScheduleSlot {
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
+}
+
+pub fn get_schedule(start_time: DateTime<Utc>) -> ScheduleSlot {
     let schedule_in = 60 - start_time.minute();
     let start_next_hour = start_time + Duration::from_secs((schedule_in * 60).into());
     let end_next_hour = start_next_hour + Duration::from_secs(60 * 60);
 
+    ScheduleSlot {
+        start_time: start_next_hour,
+        end_time: end_next_hour,
+    }
+}
+
+pub fn get_scheduled_tasks(
+    schedule_slot: ScheduleSlot,
+    periodic_jobs: &[(&String, &String)],
+    queue: &str,
+) -> Vec<NewTask> {
     periodic_jobs
         .iter()
         .filter_map(|(kind, schedule)| {
             cron::Schedule::from_str(schedule).ok().map(|schedule| {
                 schedule
-                    .after(&start_next_hour)
-                    .take_while(|schedule_at| schedule_at < &end_next_hour)
+                    .after(&schedule_slot.start_time)
+                    .take_while(|schedule_at| schedule_at <= &schedule_slot.end_time)
                     .map(|schedule_at| {
                         Task::builder()
                             .kind(kind)
@@ -80,4 +98,72 @@ pub fn get_scheduled_tasks(periodic_jobs: &[(&String, &String)], queue: &str) ->
         })
         .flatten()
         .collect::<Vec<NewTask>>()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use chrono::{DateTime, Utc};
+
+    #[test]
+    fn can_get_schedule() {
+        let now = "2014-11-28T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let start_time = "2014-11-28T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let end_time = "2014-11-28T13:00:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        let expected = ScheduleSlot {
+            start_time,
+            end_time,
+        };
+
+        let schedule = get_schedule(now);
+
+        assert_eq!(expected, schedule)
+    }
+
+    #[test]
+    fn can_get_task_schedules() {
+        let now = "2014-11-28T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let schedule = get_schedule(now);
+
+        let tasks = get_scheduled_tasks(
+            schedule,
+            &[(&"every-five-minutes".into(), &"0 */5 * * * * *".into())],
+            "default",
+        );
+
+        let mut expected: Vec<NewTask> = Vec::new();
+        let start = now + Duration::from_secs(60 * 60);
+        let five_minutes = Duration::from_secs(60 * 5);
+
+        for i in 1..13 {
+            expected.push(
+                Task::builder()
+                    .kind("every-five-minutes")
+                    .args(serde_json::value::Value::Null)
+                    .scheduled_at(&(start + (five_minutes * i)))
+                    .queue("default")
+                    .build()
+                    .unwrap(),
+            )
+        }
+
+        assert_eq!(expected.len(), tasks.len());
+        assert_eq!(expected, tasks);
+    }
+
+    #[test]
+    fn can_get_next_periodic_task_schedule() {
+        let expected = "2014-11-28T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let now = "2014-11-28T11:00:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        assert_eq!(expected, get_next_periodic_task_schedule(now));
+
+        let now = "2014-11-28T11:05:05Z".parse::<DateTime<Utc>>().unwrap();
+        assert_eq!(expected, get_next_periodic_task_schedule(now));
+
+        let now = "2014-11-28T11:59:00Z".parse::<DateTime<Utc>>().unwrap();
+        assert_eq!(expected, get_next_periodic_task_schedule(now));
+    }
 }
