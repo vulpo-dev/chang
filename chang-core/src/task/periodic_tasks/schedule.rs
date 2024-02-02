@@ -7,8 +7,8 @@ use std::time::Duration;
 use crate::task::Task;
 use crate::utils::context::Context;
 
-use super::{
-    task_runner::PeriodicJobs, Db, FromTaskContext, NewTask, TaskKind, TaskService, TaskState,
+use crate::task::{
+    periodic_tasks::PeriodicJobs, Db, FromTaskContext, NewTask, TaskKind, TaskService, TaskState,
 };
 
 pub struct ChangSchedulePeriodicTask;

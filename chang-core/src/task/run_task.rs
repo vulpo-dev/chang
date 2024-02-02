@@ -7,7 +7,7 @@ use sqlx::PgPool;
 use std::fmt::Debug;
 use std::{collections::HashMap, error::Error};
 
-type TaskRouter<E> = HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>;
+pub type TaskRouter<E> = HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>;
 
 pub async fn run_task<E: Into<Box<dyn Error + Send + Sync>>>(
     task_pool: &PgPool,

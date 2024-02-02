@@ -1,14 +1,13 @@
+use super::periodic_tasks::PeriodicJobs;
 use super::queue::{SchedulingStrategy, TaskQueue};
-use super::FromTaskContext;
-use crate::db::tasks::TaskKind;
-use crate::task::run_task::run_task;
+use super::run_task::TaskRouter;
+use super::{task_loop, FromTaskContext};
 
-use crate::db::tasks::{Task, TaskService};
+use crate::task::periodic_tasks;
 use crate::task::traits::TaskHandler;
-use crate::task::ChangSchedulePeriodicTask;
 use crate::utils::context::{AnyClone, Context};
 
-use chrono::{Timelike, Utc};
+use chrono::Utc;
 use futures::future;
 use futures_util::future::SelectAll;
 use log::{error, info};
@@ -16,37 +15,9 @@ use sqlx::PgPool;
 use std::error::Error;
 use std::fmt::Debug;
 use std::ops::Deref;
-use std::time::Duration;
-use std::{
-    collections::{hash_map, HashMap},
-    sync::Arc,
-};
+
+use std::{collections::HashMap, sync::Arc};
 use tokio_util::sync::CancellationToken;
-
-#[derive(Clone)]
-pub struct PeriodicJobs(HashMap<String, String>);
-
-impl PeriodicJobs {
-    pub fn entries(&self) -> hash_map::Iter<'_, String, String> {
-        self.0.iter()
-    }
-}
-
-impl FromTaskContext for PeriodicJobs {
-    type Error = PeriodicJobsError;
-
-    fn from_context(ctx: &Context) -> Result<Self, Self::Error> {
-        ctx.get::<PeriodicJobs>()
-            .ok_or(PeriodicJobsError::PeriodicJobsNotFound)
-            .cloned()
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum PeriodicJobsError {
-    #[error("PeriodicJobs not found in Context")]
-    PeriodicJobsNotFound,
-}
 
 pub const DEFAULT_QUEUE: &str = "default";
 
@@ -55,7 +26,7 @@ where
     E: std::fmt::Display + Debug,
 {
     db: PgPool,
-    routes: Arc<HashMap<String, Box<dyn TaskHandler<Context, E> + Send + Sync>>>,
+    routes: Arc<TaskRouter<E>>,
     periodic_jobs: Arc<HashMap<String, String>>,
     context: Arc<Context>,
     queue: Arc<TaskQueue>,
@@ -102,51 +73,15 @@ where
             let handle = tokio::spawn(async move {
                 let thread_label = format!("{} - {}", label, thread);
 
-                loop {
-                    if cancel_token.is_cancelled() || task_pool.is_closed() {
-                        break;
-                    }
-
-                    if task_pool.is_closed() {
-                        tokio::time::sleep(Duration::from_millis(500)).await;
-                        continue;
-                    }
-
-                    let get_tasks = match queue.strategy {
-                        SchedulingStrategy::Priority => {
-                            TaskService::get_priority_tasks(&task_pool, &queue.name, 1).await
-                        }
-                        SchedulingStrategy::FCFS => {
-                            TaskService::get_tasks(&task_pool, &queue.name, 1).await
-                        }
-                    };
-
-                    let tasks = match get_tasks {
-                        Ok(tasks) => tasks,
-                        Err(err) => {
-                            error!(
-                                "[{}] task error: failed to fetch tasks {:?}",
-                                thread_label, err
-                            );
-                            tokio::time::sleep(Duration::from_millis(500)).await;
-                            continue;
-                        }
-                    };
-
-                    if tasks.is_empty() {
-                        tokio::time::sleep(Duration::from_millis(500)).await;
-                        continue;
-                    }
-
-                    let mut futures: Vec<_> = vec![];
-
-                    for task in tasks.into_iter() {
-                        let fut = run_task::<E>(&task_pool, task, &router, &context, &thread_label);
-                        futures.push(Box::pin(fut));
-                    }
-
-                    let _ = future::select_all(futures).await;
-                }
+                task_loop::start(
+                    &thread_label,
+                    &cancel_token,
+                    &task_pool,
+                    &queue,
+                    &router,
+                    &context,
+                )
+                .await;
             });
 
             handles.push(handle);
@@ -157,51 +92,10 @@ where
         let db = self.db.clone();
         tokio::spawn(async move {
             // try insert chang_schedule_periodic_tasks task
-
-            if periodic_jobs.is_empty() {
-                return;
-            }
-
-            let kind = ChangSchedulePeriodicTask::kind();
-
-            let current_task =
-                match TaskService::get_tasks_by_kind(&db, &kind, &queue.name, 1).await {
-                    Err(err) => {
-                        error!("failed to fetch current task({}): {:?}", kind, err);
-                        return;
-                    }
-
-                    Ok(ct) => ct,
-                };
-
-            if current_task.first().is_some() {
-                return;
-            }
-
             let now = Utc::now();
-            let seconds = now.minute() * 60;
-            let start_of_hour = now - Duration::from_secs(seconds.into());
-
-            let task = Task::builder()
-                .kind(&kind)
-                .args(serde_json::Value::Null)
-                .scheduled_at(&start_of_hour)
-                .priority(std::i16::MAX)
-                .queue(&queue.name)
-                .build();
-
-            let task = match task {
-                Err(err) => {
-                    error!("failed to build task({}): {:?}", kind, err);
-                    return;
-                }
-
-                Ok(task) => task,
+            if let Err(error) = periodic_tasks::init(&periodic_jobs, &db, &queue.name, &now).await {
+                error!("{:?}", error);
             };
-
-            if let Err(err) = task.insert(&db).await {
-                error!("failed to insert task({}): {:?}", kind, err);
-            }
         });
 
         tokio::spawn(async move {

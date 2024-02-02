@@ -50,7 +50,7 @@ pub trait TaskKind {
         Self: Sized;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Task {
     pub id: Uuid,
     pub state: TaskState,
