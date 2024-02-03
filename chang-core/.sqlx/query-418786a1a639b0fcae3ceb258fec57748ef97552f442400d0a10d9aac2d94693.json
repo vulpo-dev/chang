@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\ninsert into chang.tasks(max_attempts, scheduled_at, priority, args, attempted_by, kind, queue, tags, depends_on, dependend_id)\nvalues (\n\t$1 -- max_attempts\n  , coalesce($2, now()) -- scheduled_at\n  , $3 -- priority\n  , $4 -- args\n  , $5 -- attempted_by\n  , $6 -- kind\n  , coalesce($7, 'default') -- queue\n  , $8 -- tags\n  , $9 -- depends_on\n  , $10 -- dependend_id\n  )\nreturning id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int2",
+        "Timestamptz",
+        "Int2",
+        "Jsonb",
+        "TextArray",
+        "Text",
+        "Text",
+        "VarcharArray",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "418786a1a639b0fcae3ceb258fec57748ef97552f442400d0a10d9aac2d94693"
+}

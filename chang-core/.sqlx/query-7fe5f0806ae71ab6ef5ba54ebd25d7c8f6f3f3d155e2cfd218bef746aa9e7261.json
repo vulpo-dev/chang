@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/*\n * $1 json - Array of logs \n */\n \ninsert into chang.tasks(max_attempts, scheduled_at, priority, args, attempted_by, kind, queue, tags, depends_on, dependend_id)\nselect *\n  from jsonb_to_recordset($1) as tasks\n          ( max_attempts smallint \n          , scheduled_at timestamptz\n          , priority smallint\n          , args jsonb\n          , attempted_by text[]\n          , kind text\n          , queue text\n          , tags varchar(255)[]\n          , depends_on uuid\n          , dependend_id uuid\n          )\nreturning id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7fe5f0806ae71ab6ef5ba54ebd25d7c8f6f3f3d155e2cfd218bef746aa9e7261"
+}

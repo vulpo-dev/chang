@@ -1,0 +1,110 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/*\n * $1 string - queue\n * $2 u16 - limit\n*/\nwith available_tasks as (\n \tselect id, state\n \t  from chang.tasks all_tasks\n \t where all_tasks.queue = $1\n \t   and all_tasks.scheduled_at <= now()\n \t   and (all_tasks.state = 'available' or all_tasks.state = 'retryable')\n \t   and case\n \t         when depends_on is null then true\n \t         else not exists (\n \t         \tselect *\n \t         \t  from chang.tasks\n \t         \t where dependend_id = all_tasks.depends_on\n \t         \t   and ( \n \t         \t   \t     state = 'running'\n \t         \t      or state = 'scheduled'\n \t         \t      or state = 'available'\n \t         \t      or state = 'retryable'\n \t         \t   )\n \t         )\n \t       end\n \t order by priority desc\n \t        , scheduled_at asc\n            , id asc\n \t limit $2\n \t for update skip locked\n), insert_history as (\n\tinsert into chang.task_history(task_id, from_state, to_state)\n\tselect id as task_id\n\t     , available_tasks.state as from_state \n\t     , 'running' as to_state\n\t  from available_tasks\n\treturning task_id as id\n)\nupdate chang.tasks\n   set state = 'running'\n     , attempt = attempt + 1\n where chang.tasks.id in (select * from insert_history)\n returning id\n         , state as \"state: TaskState\"\n         , attempt\n         , scheduled_at\n         , max_attempts\n         , attempted_by\n         , tags\n         , kind\n         , args\n         , priority\n         , queue\n         , depends_on\n         , dependend_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "state: TaskState",
+        "type_info": {
+          "Custom": {
+            "name": "tasks_state",
+            "kind": {
+              "Enum": [
+                "available",
+                "cancelled",
+                "completed",
+                "discarded",
+                "retryable",
+                "running",
+                "scheduled"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "attempt",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 3,
+        "name": "scheduled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "max_attempts",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 5,
+        "name": "attempted_by",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "tags",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "args",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "priority",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 10,
+        "name": "queue",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "depends_on",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 12,
+        "name": "dependend_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "6ee716734a2ac90e90347fd67c5ebfe73a53be7f203ac96ba3634f85d6c5a885"
+}

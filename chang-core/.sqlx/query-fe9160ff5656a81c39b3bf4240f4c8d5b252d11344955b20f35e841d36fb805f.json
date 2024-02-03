@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/*\n * $1 json - Array of logs \n */\ninsert into chang.logs\nselect *\n  from jsonb_to_recordset($1) as log_records\n       ( id uuid \n       , severity_number bigint\n       , dropped_attributes_count bigint\n       , observed_time timestamptz\n       , resource jsonb\n       , scope jsonb\n       , attributes jsonb\n       , flags smallint\n       , time timestamptz\n       , severity_text text\n       , body text\n       , span_id text\n       , trace_id text\n       )\non conflict (id) do update set id = uuid_generate_v4()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fe9160ff5656a81c39b3bf4240f4c8d5b252d11344955b20f35e841d36fb805f"
+}
