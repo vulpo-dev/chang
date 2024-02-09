@@ -7,7 +7,7 @@ use super::FromTaskContext;
 use crate::utils::context::Context;
 use std::collections::{hash_map, HashMap};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PeriodicJobs(pub HashMap<String, String>);
 
 impl PeriodicJobs {

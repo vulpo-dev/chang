@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use futures::future;
@@ -9,6 +10,7 @@ use tokio::time;
 use tokio::{self, select};
 use tokio_util::sync::CancellationToken;
 
+use crate::task::periodic_tasks::PeriodicJobs;
 use crate::task::{
     run_task::{run_task, TaskRouter},
     SchedulingStrategy, TaskQueue, TaskService,
@@ -22,10 +24,12 @@ pub async fn start<E: Into<Box<dyn Error + Send + Sync>>>(
     queue: &TaskQueue,
     router: &TaskRouter<E>,
     context: &Context,
+    periodic_jobs: &HashMap<String, String>,
 ) where
     E: std::fmt::Display + Debug,
 {
     let mut interval = time::interval(Duration::from_millis(queue.interval));
+    let periodic_jobs = PeriodicJobs(periodic_jobs.clone());
 
     loop {
         if cancel_token.is_cancelled() || db.is_closed() {
@@ -56,7 +60,7 @@ pub async fn start<E: Into<Box<dyn Error + Send + Sync>>>(
         let mut futures: Vec<_> = vec![];
 
         for task in tasks.into_iter() {
-            let fut = run_task::<E>(&db, task, &router, &context, &label);
+            let fut = run_task::<E>(&db, task, &router, &context, &label, &periodic_jobs);
             futures.push(Box::pin(fut));
         }
 

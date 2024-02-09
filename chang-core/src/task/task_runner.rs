@@ -16,6 +16,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::ops::Deref;
 
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use tokio_util::sync::CancellationToken;
 
@@ -69,9 +70,10 @@ where
             let queue = self.queue.clone();
             let label = self.label.clone();
             let cancel_token = token.clone();
+            let periodic_jobs = self.periodic_jobs.clone();
 
             let handle = tokio::spawn(async move {
-                let thread_label = format!("{} - {}", label, thread);
+                let thread_label = format!("{} {} queue({})", thread, label, queue.name);
 
                 task_loop::start(
                     &thread_label,
@@ -80,6 +82,7 @@ where
                     &queue,
                     &router,
                     &context,
+                    &periodic_jobs,
                 )
                 .await;
             });
@@ -92,7 +95,11 @@ where
         let db = self.db.clone();
         tokio::spawn(async move {
             // try insert chang_schedule_periodic_tasks task
-            let now = Utc::now();
+            if periodic_jobs.is_empty() {
+                return;
+            }
+
+            let now = Utc::now() - Duration::from_secs(3600);
             if let Err(error) = periodic_tasks::init(&periodic_jobs, &db, &queue.name, &now).await {
                 error!("{:?}", error);
             };
@@ -148,7 +155,7 @@ where
     {
         self.inner
             .periodic_jobs
-            .insert(schedule.into(), kind.clone().into());
+            .insert(kind.clone().into(), schedule.into());
         self.register(kind, handler)
     }
 
@@ -174,6 +181,11 @@ where
 
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.inner.label = label.into();
+        self
+    }
+
+    pub fn queue(mut self, queue: TaskQueue) -> Self {
+        self.inner.queue = queue;
         self
     }
 

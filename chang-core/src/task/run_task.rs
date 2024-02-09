@@ -1,4 +1,5 @@
 use crate::db::tasks::{Task, TaskService, TaskState};
+use crate::task::periodic_tasks::PeriodicJobs;
 use crate::task::TaskHandler;
 use crate::utils::context::Context;
 
@@ -15,10 +16,11 @@ pub async fn run_task<E: Into<Box<dyn Error + Send + Sync>>>(
     router: &TaskRouter<E>,
     context: &Context,
     label: &str,
+    periodic_jobs: &PeriodicJobs,
 ) where
     E: std::fmt::Display + Debug,
 {
-    info!("[{}] run task({:?})", label, task.id);
+    info!("[{}] run task({}) with id({:?})", label, task.kind, task.id);
 
     let Some(handler) = router.get(&task.kind) else {
         let error = format!(
@@ -43,6 +45,7 @@ pub async fn run_task<E: Into<Box<dyn Error + Send + Sync>>>(
     let mut ctx = Context::from(context);
     ctx.put(task);
     ctx.put(task_pool.clone());
+    ctx.put(periodic_jobs.clone());
 
     match handler.call(ctx).await {
         Err(err) => {
@@ -80,6 +83,7 @@ mod test {
 
     use super::*;
     use crate::db::migration;
+    use crate::task::periodic_tasks::PeriodicJobs;
     use crate::task::{Db, FromTaskContext, Task, TaskKind};
     use crate::utils;
 
@@ -91,6 +95,7 @@ mod test {
         migration::tasks(&prepare.pool).await;
 
         let mut router: TaskRouter<_> = HashMap::new();
+        let periodic_jobs = PeriodicJobs(HashMap::new());
 
         router.insert(
             SimpleTask::kind(),
@@ -110,6 +115,7 @@ mod test {
             &router,
             &context,
             &prepare.name,
+            &periodic_jobs,
         )
         .await;
 
@@ -132,6 +138,7 @@ mod test {
         migration::tasks(&prepare.pool).await;
 
         let mut router: TaskRouter<_> = HashMap::new();
+        let periodic_jobs = PeriodicJobs(HashMap::new());
 
         router.insert(
             SimpleTask::kind(),
@@ -159,6 +166,7 @@ mod test {
             &router,
             &context,
             &prepare.name,
+            &periodic_jobs,
         )
         .await;
 
@@ -189,6 +197,7 @@ mod test {
 
         let task = insert_task(&prepare.pool).await.unwrap();
         let context = &Context::new();
+        let periodic_jobs = PeriodicJobs(HashMap::new());
 
         run_task::<anyhow::Error>(
             &prepare.pool,
@@ -196,6 +205,7 @@ mod test {
             &router,
             &context,
             &prepare.name,
+            &periodic_jobs,
         )
         .await;
 
@@ -221,6 +231,7 @@ mod test {
 
         let task = insert_task(&prepare.pool).await.unwrap();
         let context = &Context::new();
+        let periodic_jobs = PeriodicJobs(HashMap::new());
 
         run_task::<anyhow::Error>(
             &prepare.pool,
@@ -228,6 +239,7 @@ mod test {
             &router,
             &context,
             &prepare.name,
+            &periodic_jobs,
         )
         .await;
 

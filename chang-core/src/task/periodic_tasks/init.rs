@@ -1,7 +1,7 @@
-use std::{collections::HashMap, time::Duration};
-
 use chrono::{DateTime, Timelike, Utc};
+use log::info;
 use sqlx::PgPool;
+use std::{collections::HashMap, time::Duration};
 
 use crate::task::{ChangSchedulePeriodicTask, Task, TaskBuildError, TaskKind, TaskService};
 
@@ -40,6 +40,8 @@ pub async fn init(
     queue: &str,
     now: &DateTime<Utc>,
 ) -> Result<(), InitPeriodicJobsError> {
+    info!("Init {}", ChangSchedulePeriodicTask::kind());
+
     if periodic_jobs.is_empty() {
         return Ok(());
     }
@@ -55,6 +57,7 @@ pub async fn init(
         })?;
 
     if current_task.first().is_some() {
+        info!("{} exists, abort insert", ChangSchedulePeriodicTask::kind());
         return Ok(());
     }
 
