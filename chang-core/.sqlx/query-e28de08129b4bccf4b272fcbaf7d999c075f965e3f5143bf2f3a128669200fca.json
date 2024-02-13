@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\nwith insert_history as (\n\tinsert into chang.task_history(task_id, from_state, to_state)\n\tselect chang.tasks.id as task_id\n\t     , chang.tasks.state as from_state \n\t     , $2 as to_state\n\t  from chang.tasks\n\t where id = $1\n\treturning task_id as id\n)\nupdate chang.tasks\n   set state = $2\n where id in (select * from insert_history)\n",
+  "query": "\r\nwith insert_history as (\r\n\tinsert into chang.task_history(task_id, from_state, to_state)\r\n\tselect chang.tasks.id as task_id\r\n\t     , chang.tasks.state as from_state \r\n\t     , $2 as to_state\r\n\t  from chang.tasks\r\n\t where id = $1\r\n\treturning task_id as id\r\n)\r\nupdate chang.tasks\r\n   set state = $2\r\n where id in (select * from insert_history)\r\n",
   "describe": {
     "columns": [],
     "parameters": {
@@ -26,5 +26,5 @@
     },
     "nullable": []
   },
-  "hash": "df84b86f8aafb793551b08de5d8cb29ebaec0b3d92ef44ec152a838a41c244af"
+  "hash": "e28de08129b4bccf4b272fcbaf7d999c075f965e3f5143bf2f3a128669200fca"
 }

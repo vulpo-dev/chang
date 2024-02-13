@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\r\nwith insert_history as (\r\n\tinsert into chang.task_history(task_id, from_state, to_state)\r\n\tselect $1 as task_id\r\n\t     , 'running' as from_state \r\n\t     , 'completed' as to_state\r\n\treturning task_id as id\r\n)\r\nupdate chang.tasks\r\n   set state = 'completed'\r\n where id in (select * from insert_history)\r\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "75539fca7879d763d73bfcd6b0bc97bfdea4f2aa2ce16cf06698452afb01d2f2"
+}

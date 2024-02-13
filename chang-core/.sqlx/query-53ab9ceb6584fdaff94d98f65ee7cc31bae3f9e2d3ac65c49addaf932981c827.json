@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\nselect id\n     , state as \"state: TaskState\"\n     , attempt\n     , scheduled_at\n     , max_attempts\n     , attempted_by\n     , tags\n     , kind\n     , args\n     , priority\n     , queue\n     , depends_on\n     , dependend_id\n  from chang.tasks\n where id = $1\n",
+  "query": "\r\nselect id\r\n     , state as \"state: TaskState\"\r\n     , attempt\r\n     , scheduled_at\r\n     , max_attempts\r\n     , attempted_by\r\n     , tags\r\n     , kind\r\n     , args\r\n     , priority\r\n     , queue\r\n     , depends_on\r\n     , dependend_id\r\n  from chang.tasks\r\n where id = $1\r\n",
   "describe": {
     "columns": [
       {
@@ -105,5 +105,5 @@
       true
     ]
   },
-  "hash": "e963f7e87a1607cd5a7780873a3f7c68b7902861cfe65dca0858be8fd71e042d"
+  "hash": "53ab9ceb6584fdaff94d98f65ee7cc31bae3f9e2d3ac65c49addaf932981c827"
 }

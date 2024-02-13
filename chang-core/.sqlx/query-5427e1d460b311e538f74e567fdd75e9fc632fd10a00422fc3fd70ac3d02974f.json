@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\nselect id\n     , state as \"state: TaskState\"\n     , attempt\n     , scheduled_at\n     , max_attempts\n     , attempted_by\n     , tags\n     , kind\n     , args\n     , priority\n     , queue\n     , depends_on\n     , dependend_id\n  from chang.tasks\n where id = any($1::uuid[])\n",
+  "query": "/*\r\n * $1 string - queue\r\n * $2 u16 - limit\r\n*/\r\nwith available_tasks as (\r\n \tselect id, state\r\n \t  from chang.tasks all_tasks\r\n \t where all_tasks.queue = $1\r\n \t   and all_tasks.scheduled_at <= now()\r\n \t   and (all_tasks.state = 'available' or all_tasks.state = 'retryable')\r\n \t   and case\r\n \t         when depends_on is null then true\r\n \t         else not exists (\r\n \t         \tselect *\r\n \t         \t  from chang.tasks\r\n \t         \t where dependend_id = all_tasks.depends_on\r\n \t         \t   and ( \r\n \t         \t   \t     state = 'running'\r\n \t         \t      or state = 'scheduled'\r\n \t         \t      or state = 'available'\r\n \t         \t      or state = 'retryable'\r\n \t         \t   )\r\n \t         )\r\n \t       end\r\n \t order by scheduled_at asc\r\n            , id asc\r\n \t limit $2\r\n \t for update skip locked\r\n), insert_history as (\r\n\tinsert into chang.task_history(task_id, from_state, to_state)\r\n\tselect id as task_id\r\n\t     , available_tasks.state as from_state \r\n\t     , 'running'::chang.tasks_state as to_state\r\n\t  from available_tasks\r\n\treturning task_id as id\r\n)\r\nupdate chang.tasks\r\n   set state = 'running'\r\n     , attempt = attempt + 1\r\n where chang.tasks.id in (select * from insert_history)\r\n returning id\r\n         , state as \"state: TaskState\"\r\n         , attempt\r\n         , scheduled_at\r\n         , max_attempts\r\n         , attempted_by\r\n         , tags\r\n         , kind\r\n         , args\r\n         , priority\r\n         , queue\r\n         , depends_on\r\n         , dependend_id\r\n",
   "describe": {
     "columns": [
       {
@@ -86,7 +86,8 @@
     ],
     "parameters": {
       "Left": [
-        "UuidArray"
+        "Text",
+        "Int8"
       ]
     },
     "nullable": [
@@ -105,5 +106,5 @@
       true
     ]
   },
-  "hash": "8f9ea79a4b318abb046cfa6197b75fd739926bdd41d9f04554e32424fca44f7e"
+  "hash": "5427e1d460b311e538f74e567fdd75e9fc632fd10a00422fc3fd70ac3d02974f"
 }
