@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\nwith insert_error as (\n\tinsert into chang.task_error(task_id, error)\n\tselect $1 as task_id\n\t     , $2 as error\n\treturning task_id\n), insert_history as (\n\tinsert into chang.task_history(task_id, from_state, to_state)\n\tselect id as task_id\n\t     , 'running'::chang.tasks_state as from_state \n\t     , case\n\t          when attempt < max_attempts\n\t          then 'retryable'::chang.tasks_state\n\t          else 'discarded'::chang.tasks_state\n\t       end as to_state\n\t  from chang.tasks\n\t where id in (select * from insert_error)\n\treturning task_id, to_state\n)\nupdate chang.tasks\n   set state = insert_history.to_state\n  from insert_history\n where id = insert_history.task_id\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64f253c9b334c7a7cc0a974cfc47cdc44c6dde8bb29f1c8708996bcad1ca69c6"
+}
