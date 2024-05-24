@@ -3,6 +3,7 @@ use crate::task::periodic_tasks::PeriodicJobs;
 use crate::task::TaskHandler;
 use crate::utils::context::Context;
 
+use chrono::Utc;
 use log::{error, info};
 use sqlx::PgPool;
 use std::fmt::Debug;
@@ -41,12 +42,14 @@ pub async fn run_task<E: Into<Box<dyn Error + Send + Sync>>>(
     };
 
     let task_id = task.id;
+    let task_kind = task.kind.clone();
 
     let mut ctx = Context::from(context);
     ctx.put(task);
     ctx.put(task_pool.clone());
     ctx.put(periodic_jobs.clone());
 
+    let start = Utc::now();
     match handler.call(ctx).await {
         Err(err) => {
             let error = format!("{:?}", err);
@@ -61,6 +64,15 @@ pub async fn run_task<E: Into<Box<dyn Error + Send + Sync>>>(
             };
         }
         Ok(state) => {
+            let end = Utc::now();
+            let total = end - start;
+            info!(
+                "[{}] task({}) with id({:?}) completed in {}ms",
+                label,
+                task_kind,
+                task_id,
+                total.num_milliseconds()
+            );
             let res = match state {
                 TaskState::Completed => TaskService::complete(task_pool, &task_id).await,
                 _ => TaskService::complete(task_pool, &task_id).await,

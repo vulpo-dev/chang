@@ -1,5 +1,4 @@
-use log::kv::source::as_list;
-use log::kv::{Source, Visitor};
+use log::kv::Visitor;
 use log::{Level, Metadata, Record};
 use opentelemetry::logs::{AnyValue, LogRecordBuilder, Logger, LoggerProvider, Severity};
 use opentelemetry::{Key, OrderMap};
@@ -28,7 +27,7 @@ where
 
     fn log(&self, record: &Record) {
         let mut attributes = Attributes::default();
-        let _ = as_list(record.key_values()).visit(&mut attributes);
+        let _ = record.key_values().visit(&mut attributes);
 
         if self.enabled(record.metadata()) {
             self.logger.emit(

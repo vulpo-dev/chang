@@ -1,4 +1,4 @@
-use log::{as_error, error, info};
+use log::{error, info};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -64,7 +64,7 @@ impl ChangEventCollector {
                 let result = exporter.export(values).await;
 
                 if let Err(err) = result {
-                    error!(err = as_error!(err); "Error: failed to export events");
+                    error!(key:err = err; "Error: failed to export events");
                     // TODO: add retry
                 }
 

@@ -1,7 +1,7 @@
 use chang::otel::logs::{ChangLogBridge, ChangLogExporter};
 
 use dotenv::dotenv;
-use log::{as_serde, error, info, Level};
+use log::{error, info, Level};
 use opentelemetry::KeyValue;
 use opentelemetry_sdk::logs::{Config, LoggerProvider};
 use opentelemetry_sdk::runtime;
@@ -59,5 +59,5 @@ async fn main() {
         other: String::from("other"),
         nested: Nested { inner: 1 },
     };
-    info!(target: "yak_events", a_key = as_serde!(yak), other = as_serde!(yak); "Commencing yak shaving");
+    info!(target: "yak_events", a_key:serde = yak, other:serde = yak; "Commencing yak shaving");
 }
