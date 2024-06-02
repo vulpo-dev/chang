@@ -1,9 +1,10 @@
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{PgPool, Row};
+use sqlx::Execute;
+use sqlx::{PgExecutor, PgPool, Postgres, QueryBuilder, Row};
 use std::str::FromStr;
 use url::Url;
 
-use crate::utils::name;
+use crate::utils::{self, name};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DatabaseError {
@@ -12,6 +13,82 @@ pub enum DatabaseError {
 
     #[error(transparent)]
     Name(#[from] name::NameError),
+
+    #[error("database/invalid_name")]
+    InvalidName,
+}
+
+#[derive(Default)]
+pub struct DatabaseInner {
+    name: Option<String>,
+    owner: Option<String>,
+    template: Option<String>,
+}
+
+#[derive(Default)]
+pub struct Database {
+    inner: DatabaseInner,
+}
+
+impl Database {
+    pub fn new() -> Database {
+        Database::default()
+    }
+
+    pub fn name(mut self, name: &str) -> Self {
+        self.set_name(Some(name));
+        self
+    }
+
+    pub fn set_name(&mut self, name: Option<&str>) {
+        self.inner.name = name.map(|val| val.into());
+    }
+
+    pub fn owner(mut self, owner: &str) -> Self {
+        self.set_owner(Some(owner));
+        self
+    }
+
+    pub fn set_owner(&mut self, owner: Option<&str>) {
+        self.inner.owner = owner.map(|val| val.into());
+    }
+
+    pub fn template(mut self, template: &str) -> Self {
+        self.set_template(Some(template));
+        self
+    }
+
+    pub fn set_template(&mut self, template: Option<&str>) {
+        self.inner.template = template.map(|val| val.into());
+    }
+
+    pub async fn create(self, db: impl PgExecutor<'_>) -> Result<(), DatabaseError> {
+        let name = self.inner.name.ok_or(DatabaseError::InvalidName)?;
+
+        utils::name::is_valid(&name)?;
+
+        let base_query = format!("create database {}", name);
+        let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(base_query);
+
+        if let Some(owner) = self.inner.owner {
+            utils::name::is_valid(&owner)?;
+            let query = format!("\nowner = {owner}");
+            query_builder.push(query);
+        }
+
+        if let Some(template) = self.inner.template {
+            utils::name::is_valid(&template)?;
+            let query = format!("\ntemplate = {template}");
+            query_builder.push(query);
+        }
+
+        let query = query_builder.build();
+        let sql = query.sql();
+
+        sqlx::query(sql).execute(db).await?;
+
+        Ok(())
+    }
 }
 
 pub async fn create(database_url: &str) -> Result<(), DatabaseError> {
@@ -36,8 +113,7 @@ pub async fn create(database_url: &str) -> Result<(), DatabaseError> {
         return Ok(());
     }
 
-    let query = format!("create database {}", database);
-    sqlx::query(&query).execute(&pool).await?;
+    Database::new().name(database).create(&pool).await?;
     Ok(())
 }
 
